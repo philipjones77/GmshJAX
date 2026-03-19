@@ -7,6 +7,7 @@ from typing import TypedDict
 import jax.numpy as jnp
 
 from topojax.mesh.adaptive_quad import quad_area_magnitudes
+from topojax.mesh.adaptive_tet import tet_volume_magnitudes
 from topojax.mesh.operators import line_element_lengths, line_mesh_quality_energy, quad_icn, quad_ige, tet_icn, tet_ige, triangle_icn, triangle_ige
 from topojax.mesh.refine import triangle_area_magnitudes
 from topojax.mesh.topology import mesh_topology_from_points_and_elements
@@ -69,8 +70,7 @@ def quad_diagnostics(points: jnp.ndarray, elements: jnp.ndarray) -> MeshStats:
 def tet_diagnostics(points: jnp.ndarray, elements: jnp.ndarray) -> MeshStats:
     icn = tet_icn(points, elements)
     ige = tet_ige(points, elements)
-    # Volume proxy via determinant magnitude from ICN scaling fallback.
-    vol_proxy = jnp.abs(icn)
+    vol_proxy = tet_volume_magnitudes(points, elements)
     return MeshStats(
         n_nodes=int(points.shape[0]),
         n_elements=int(elements.shape[0]),
@@ -80,3 +80,31 @@ def tet_diagnostics(points: jnp.ndarray, elements: jnp.ndarray) -> MeshStats:
         min_ige=float(jnp.min(ige)),
         max_area_or_volume_proxy=float(jnp.max(vol_proxy)),
     )
+
+
+def element_diagnostic_fields(points: jnp.ndarray, elements: jnp.ndarray) -> dict[str, jnp.ndarray]:
+    """Return per-element diagnostic arrays for a supported topology."""
+    elems = jnp.asarray(elements, dtype=jnp.int32)
+    order = int(elems.shape[1])
+    dim = int(jnp.asarray(points).shape[1])
+    if order == 2:
+        return {"edge_length": line_element_lengths(points, elems)}
+    if order == 3:
+        return {
+            "icn": triangle_icn(points, elems),
+            "ige": triangle_ige(points, elems),
+            "area": triangle_area_magnitudes(points, elems),
+        }
+    if order == 4 and dim == 2:
+        return {
+            "icn": quad_icn(points, elems),
+            "ige": quad_ige(points, elems),
+            "area": quad_area_magnitudes(points, elems),
+        }
+    if order == 4 and dim == 3:
+        return {
+            "icn": tet_icn(points, elems),
+            "ige": tet_ige(points, elems),
+            "volume": tet_volume_magnitudes(points, elems),
+        }
+    raise ValueError("Unsupported topology for element diagnostics")

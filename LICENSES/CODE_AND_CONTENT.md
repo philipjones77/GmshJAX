@@ -6,6 +6,7 @@ Unless a more specific notice says otherwise, source code, examples, tests, tool
 
 Authority:
 - [../LICENSE](/home/phili/projects/TopoSmplJAX/LICENSE)
+- [THIRD_PARTY_NOTICES.md](/home/phili/projects/TopoSmplJAX/LICENSES/THIRD_PARTY_NOTICES.md)
 
 ## Path Matrix
 
@@ -40,10 +41,12 @@ Special boundary:
 
 `topojax`:
 - Repository code and docs for the Topo backend are MIT under the root license.
+- Some files may additionally contain Gmsh-derived material; see [THIRD_PARTY_NOTICES.md](/home/phili/projects/TopoSmplJAX/LICENSES/THIRD_PARTY_NOTICES.md).
 
 `smpljax`:
 - Repository code, wrappers, docs, tests, and conversion tools are MIT under the root license.
 - Upstream SMPL-family model assets are not covered by the repository MIT grant unless the upstream license explicitly allows it.
+- Reference implementations and associated tooling such as `smplx` and the SMPL Blender add-on remain governed by their upstream terms.
 
 ## Operational Rule
 

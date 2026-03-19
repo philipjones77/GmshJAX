@@ -1,155 +1,253 @@
-"""topojax: AD mesh creation for JAX."""
+"""topojax public API with lazy exports.
 
-from .ad.compiled import build_quality_value_and_grad
-from .ad.mode1 import (
-    Mode1BenchmarkResult,
-    Mode1JaxDiagnostics,
-    Mode1OptimizationResult,
-    Mode1StepDiagnostics,
-    benchmark_mode1_fixed_topology,
-    collect_mode1_jax_diagnostics,
-    export_mode1_artifacts,
-    optimize_mode1_fixed_topology,
-    summarize_mode1_result,
-)
-from .ad.workflow import (
-    Mode1Domain,
-    Mode1WorkflowRun,
-    Mode2Domain,
-    Mode2WorkflowRun,
-    initialize_mode1_domain,
-    initialize_mode2_domain,
-    run_mode1_workflow,
-    run_mode2_restart_workflow,
-)
-from .ad.pipeline import (
-    build_model_parametric_quality_value_and_grad,
-    build_parametric_quality_value_and_grad,
-    default_param_vector,
-    default_params,
-)
-from .ad.modes import MeshMovementMode, MeshMovementModeSpec, get_mesh_movement_mode, get_mesh_movement_modes
-from .ad.restart import (
-    RestartPhase,
-    RestartOptimizationResult,
-    RestartQuadOptimizationResult,
-    RestartTetOptimizationResult,
-    RestartTriOptimizationResult,
-    export_mode2_artifacts,
-    optimize_points_fixed_topology,
-    optimize_remesh_restart_quad,
-    optimize_remesh_restart_tet,
-    optimize_remesh_restart_tri,
-    quad_topology_from_elements,
-    restart_result_topology,
-    summarize_mode2_restart_result,
-    tet_topology_from_elements,
-    triangle_topology_from_elements,
-)
-from .ad.straight_through import straight_through_quad_connectivity_energy, straight_through_quad_diagonal_weights
-from .ad.surrogate import quad_split_candidate_qualities, soft_quad_connectivity_energy, soft_quad_diagonal_weights
-from .io.exports import GmshElementBlock, export_binary_stl, export_gmsh_msh, export_metrics_json, export_snapshot_npz, load_snapshot_npz
-from .io.gmsh_viewer import launch_gmsh_viewer
-from .io.imports import ImportedGmshMesh, load_gmsh_msh
-from .mesh.adaptive import AdaptiveHistory, adaptive_remesh_tri
-from .mesh.adaptive_quad import QuadAdaptiveHistory, adaptive_remesh_quad, quad_area_magnitudes, quad_refinement_priority
-from .mesh.adaptive_tet import TetAdaptiveHistory, adaptive_remesh_tet, tet_refinement_priority, tet_volume_magnitudes
-from .mesh.boundary import (
-    BoundaryCurves2D,
-    BoundaryCurves3D,
-    boundary_constrained_points,
-    cleanup_uv_tri_mesh,
-    evaluate_surface_patch,
-    line_segment,
-    sinusoidal_top_boundary,
-    smooth_boundary_constrained_points,
-    smooth_surface_boundary_constrained_points,
-    surface_boundary_constrained_points,
-    surface_front_tri_mesh,
-    surface_parametric_point_cloud,
-    surface_point_cloud,
-    surface_transfinite_interpolation,
-    transfinite_interpolation,
-    uv_triangle_quality_objective,
-)
-from .mesh.connectivity_opt import evaluate_edge_flip_candidates, evaluate_laplacian_smoothing_candidates
-from .mesh.factory import make_unit_square_model
-from .mesh.generators import project_cube_points_to_sphere, unit_square_points
-from .mesh.manifold import DeformationParams, apply_deformation
-from .mesh.mutation import (
-    TriMeshBuffer,
-    active_elements,
-    active_points,
-    collapse_triangle,
-    flip_diagonal,
-    make_tri_mesh_buffer,
-    split_triangle,
-)
-from .mesh.mutation_qt import (
-    QuadMeshBuffer,
-    TetMeshBuffer,
-    active_quad_elements,
-    active_quad_points,
-    active_tet_elements,
-    active_tet_points,
-    collapse_quad,
-    collapse_tet,
-    make_quad_mesh_buffer,
-    make_tet_mesh_buffer,
-    split_quad,
-    split_tet,
-)
-from .mesh.diagnostics import line_diagnostics, quad_diagnostics, tet_diagnostics, tri_diagnostics
-from .mesh.domains import (
-    DomainMeshMetadata,
-    box_volume_tet_mesh,
-    box_volume_tet_mesh_tagged,
-    extruded_polygon_tet_mesh,
-    implicit_volume_tet_mesh,
-    implicit_volume_tet_mesh_tagged,
-    polygon_domain_quad_mesh,
-    polygon_domain_quad_mesh_tagged,
-    polygon_domain_tri_mesh,
-    polygon_domain_tri_mesh_tagged,
-    sphere_volume_tet_mesh,
-    sphere_volume_tet_mesh_tagged,
-)
-from .mesh.operators import (
-    edge_lengths,
-    graph_laplacian_step,
-    line_element_lengths,
-    line_mesh_quality_energy,
-    quad_mesh_quality_energy,
-    quad_icn,
-    quad_ige,
-    tet_mesh_quality_energy,
-    tet_icn,
-    tet_ige,
-    triangle_icn,
-    triangle_ige,
-    triangle_signed_areas,
-)
-from .mesh.refine import (
-    batched_refinement_step,
-    refinement_midpoints,
-    select_refinement_candidates,
-    triangle_area_magnitudes,
-    triangle_refinement_priority,
-)
-from .mesh.topology import MeshTopology, mesh_topology_from_points_and_elements, polyline_mesh, unit_cube_tet_mesh, unit_interval_line_mesh, unit_square_quad_mesh, unit_square_tri_mesh
-from .model import GEntity, MeshModel, MeshState, update_points
-from .numpy_impl import NumpyDeformationParams, NumpyMeshTopology
-from .rf77 import (
-    RandomFields77ModeBridge,
-    build_mode1_randomfields77_bridge,
-    build_mode2_randomfields77_bridge,
-    build_mode3_randomfields77_bridge,
-    build_mode4_randomfields77_bridge,
-    build_mode5_randomfields77_bridge,
-    build_randomfields77_bridge,
-)
-from .runtime import get_runtime_precision, jax_float_dtype, numpy_float_dtype, set_runtime_precision
-from .visualization import build_mode1_viper_payload, build_pyvista_dataset, plot_mode1_matplotlib, plot_mode1_pyvista, plot_mode1_viper
+The package keeps meshing and AD as the primary runtime path. Heavy optional
+surfaces such as visualization backends are resolved only when their symbols
+are accessed.
+"""
+
+from __future__ import annotations
+
+from importlib import import_module
+
+
+_MODULE_EXPORTS: dict[str, tuple[str, ...]] = {
+    ".ad.compiled": ("build_quality_value_and_grad",),
+    ".ad.mode1": (
+        "Mode1BenchmarkResult",
+        "Mode1JaxDiagnostics",
+        "Mode1OptimizationResult",
+        "Mode1StepDiagnostics",
+        "benchmark_mode1_fixed_topology",
+        "collect_mode1_jax_diagnostics",
+        "export_mode1_artifacts",
+        "mode1_history_payload",
+        "mode1_metrics_payload",
+        "optimize_mode1_fixed_topology",
+        "summarize_mode1_result",
+    ),
+    ".ad.workflow": (
+        "Mode1Domain",
+        "Mode1WorkflowRun",
+        "Mode2Domain",
+        "Mode2WorkflowRun",
+        "initialize_mode1_domain",
+        "initialize_mode2_domain",
+        "run_mode1_workflow",
+        "run_mode2_restart_workflow",
+    ),
+    ".ad.pipeline": (
+        "build_model_parametric_quality_value_and_grad",
+        "build_parametric_quality_value_and_grad",
+        "default_param_vector",
+        "default_params",
+    ),
+    ".ad.modes": (
+        "MeshMovementMode",
+        "MeshMovementModeSpec",
+        "get_mesh_movement_mode",
+        "get_mesh_movement_modes",
+    ),
+    ".ad.restart": (
+        "RestartPhase",
+        "RestartOptimizationResult",
+        "RestartQuadOptimizationResult",
+        "RestartTetOptimizationResult",
+        "RestartTriOptimizationResult",
+        "export_mode2_artifacts",
+        "optimize_points_fixed_topology",
+        "optimize_remesh_restart_quad",
+        "optimize_remesh_restart_tet",
+        "optimize_remesh_restart_tri",
+        "quad_topology_from_elements",
+        "restart_result_topology",
+        "summarize_mode2_restart_result",
+        "tet_topology_from_elements",
+        "triangle_topology_from_elements",
+    ),
+    ".ad.straight_through": (
+        "straight_through_quad_connectivity_energy",
+        "straight_through_quad_diagonal_weights",
+    ),
+    ".ad.surrogate": (
+        "quad_split_candidate_qualities",
+        "soft_quad_connectivity_energy",
+        "soft_quad_diagonal_weights",
+    ),
+    ".io.exports": (
+        "GmshElementBlock",
+        "export_binary_stl",
+        "export_gmsh_msh",
+        "export_metrics_json",
+        "export_snapshot_npz",
+        "load_snapshot_npz",
+    ),
+    ".io.gmsh_viewer": ("launch_gmsh_viewer",),
+    ".io.imports": ("ImportedGmshMesh", "load_gmsh_msh"),
+    ".io.topo_snapshot": (
+        "TOPO_SNAPSHOT_SCHEMA",
+        "TOPO_SNAPSHOT_VERSION",
+        "TopoSnapshot",
+        "export_topo_snapshot",
+        "load_topo_snapshot",
+    ),
+    ".mesh.adaptive": ("AdaptiveHistory", "adaptive_remesh_tri"),
+    ".mesh.adaptive_quad": (
+        "QuadAdaptiveHistory",
+        "adaptive_remesh_quad",
+        "quad_area_magnitudes",
+        "quad_refinement_priority",
+    ),
+    ".mesh.adaptive_tet": (
+        "TetAdaptiveHistory",
+        "adaptive_remesh_tet",
+        "tet_refinement_priority",
+        "tet_volume_magnitudes",
+    ),
+    ".mesh.boundary": (
+        "BoundaryCurves2D",
+        "BoundaryCurves3D",
+        "boundary_constrained_points",
+        "cleanup_uv_tri_mesh",
+        "evaluate_surface_patch",
+        "line_segment",
+        "sinusoidal_top_boundary",
+        "smooth_boundary_constrained_points",
+        "smooth_surface_boundary_constrained_points",
+        "surface_boundary_constrained_points",
+        "surface_front_tri_mesh",
+        "surface_parametric_point_cloud",
+        "surface_point_cloud",
+        "surface_transfinite_interpolation",
+        "transfinite_interpolation",
+        "uv_triangle_quality_objective",
+    ),
+    ".mesh.connectivity_opt": (
+        "evaluate_edge_flip_candidates",
+        "evaluate_laplacian_smoothing_candidates",
+    ),
+    ".mesh.diagnostics": (
+        "element_diagnostic_fields",
+        "line_diagnostics",
+        "quad_diagnostics",
+        "tet_diagnostics",
+        "tri_diagnostics",
+    ),
+    ".mesh.domains": (
+        "DomainMeshMetadata",
+        "box_volume_tet_mesh",
+        "box_volume_tet_mesh_tagged",
+        "extruded_polygon_tet_mesh",
+        "implicit_volume_tet_mesh",
+        "implicit_volume_tet_mesh_tagged",
+        "polygon_domain_quad_mesh",
+        "polygon_domain_quad_mesh_tagged",
+        "polygon_domain_tri_mesh",
+        "polygon_domain_tri_mesh_tagged",
+        "sphere_surface_tri_mesh",
+        "sphere_surface_tri_mesh_tagged",
+        "sphere_volume_tet_mesh",
+        "sphere_volume_tet_mesh_tagged",
+    ),
+    ".mesh.factory": ("make_unit_square_model",),
+    ".mesh.generators": ("project_cube_points_to_sphere", "unit_square_points"),
+    ".mesh.manifold": ("DeformationParams", "apply_deformation"),
+    ".mesh.mutation": (
+        "TriMeshBuffer",
+        "active_elements",
+        "active_points",
+        "collapse_triangle",
+        "flip_diagonal",
+        "make_tri_mesh_buffer",
+        "split_triangle",
+    ),
+    ".mesh.mutation_qt": (
+        "QuadMeshBuffer",
+        "TetMeshBuffer",
+        "active_quad_elements",
+        "active_quad_points",
+        "active_tet_elements",
+        "active_tet_points",
+        "collapse_quad",
+        "collapse_tet",
+        "make_quad_mesh_buffer",
+        "make_tet_mesh_buffer",
+        "split_quad",
+        "split_tet",
+    ),
+    ".mesh.operators": (
+        "edge_lengths",
+        "graph_laplacian_step",
+        "line_element_lengths",
+        "line_mesh_quality_energy",
+        "quad_mesh_quality_energy",
+        "quad_icn",
+        "quad_ige",
+        "tet_mesh_quality_energy",
+        "tet_icn",
+        "tet_ige",
+        "triangle_icn",
+        "triangle_ige",
+        "triangle_signed_areas",
+    ),
+    ".mesh.refine": (
+        "batched_refinement_step",
+        "refinement_midpoints",
+        "select_refinement_candidates",
+        "triangle_area_magnitudes",
+        "triangle_refinement_priority",
+    ),
+    ".mesh.topology": (
+        "MeshTopology",
+        "mapped_quad_mesh",
+        "mesh_topology_from_points_and_elements",
+        "polyline_mesh",
+        "unit_cube_tet_mesh",
+        "unit_interval_line_mesh",
+        "unit_square_quad_mesh",
+        "unit_square_tri_mesh",
+    ),
+    ".model": ("GEntity", "MeshModel", "MeshState", "update_points"),
+    ".numpy_impl": ("NumpyDeformationParams", "NumpyMeshTopology"),
+    ".rf77": (
+        "RandomFields77ModeBridge",
+        "build_mode1_randomfields77_bridge",
+        "build_mode2_randomfields77_bridge",
+        "build_mode3_randomfields77_bridge",
+        "build_mode4_randomfields77_bridge",
+        "build_mode5_randomfields77_bridge",
+        "build_randomfields77_bridge",
+    ),
+    ".runtime": ("get_runtime_precision", "jax_float_dtype", "numpy_float_dtype", "set_runtime_precision"),
+    ".visualization": (
+        "TopoVisualizationState",
+        "build_mode1_visualization_payload",
+        "build_mode2_visualization_payload",
+        "build_mode3_visualization_payload",
+        "build_mode4_visualization_payload",
+        "build_mode5_visualization_payload",
+        "build_pyvista_dataset",
+        "build_topo_visualization_payload",
+        "export_mode1_visualization_payload",
+        "plot_mode1_gmsh",
+        "plot_mode1_matplotlib",
+        "plot_mode1_pyvista",
+        "plot_topo_pyvista",
+        "plot_topo_viser",
+        "visualize_mode1",
+        "visualize_mode1_result",
+        "visualize_mode2_result",
+        "visualize_mode3_state",
+        "visualize_mode4_state",
+        "visualize_mode5_state",
+        "visualize_topo_state",
+    ),
+}
+
+_EXPORT_MAP = {
+    name: (module_name, name)
+    for module_name, names in _MODULE_EXPORTS.items()
+    for name in names
+}
 
 __all__ = [
     "AdaptiveHistory",
@@ -171,6 +269,10 @@ __all__ = [
     "TetMeshBuffer",
     "TetAdaptiveHistory",
     "TriMeshBuffer",
+    "TOPO_SNAPSHOT_SCHEMA",
+    "TOPO_SNAPSHOT_VERSION",
+    "TopoSnapshot",
+    "TopoVisualizationState",
     "active_elements",
     "active_points",
     "active_quad_elements",
@@ -185,13 +287,17 @@ __all__ = [
     "boundary_constrained_points",
     "benchmark_mode1_fixed_topology",
     "build_mode1_randomfields77_bridge",
-    "build_mode1_viper_payload",
     "build_mode2_randomfields77_bridge",
+    "build_mode2_visualization_payload",
     "build_mode3_randomfields77_bridge",
+    "build_mode3_visualization_payload",
     "build_mode4_randomfields77_bridge",
+    "build_mode4_visualization_payload",
     "build_mode5_randomfields77_bridge",
+    "build_mode5_visualization_payload",
     "build_model_parametric_quality_value_and_grad",
     "build_parametric_quality_value_and_grad",
+    "build_topo_visualization_payload",
     "build_pyvista_dataset",
     "build_quality_value_and_grad",
     "build_randomfields77_bridge",
@@ -219,6 +325,7 @@ __all__ = [
     "collapse_triangle",
     "default_param_vector",
     "default_params",
+    "element_diagnostic_fields",
     "edge_lengths",
     "evaluate_edge_flip_candidates",
     "evaluate_laplacian_smoothing_candidates",
@@ -227,9 +334,11 @@ __all__ = [
     "export_gmsh_msh",
     "export_binary_stl",
     "export_mode1_artifacts",
+    "export_mode1_visualization_payload",
     "export_mode2_artifacts",
     "export_metrics_json",
     "export_snapshot_npz",
+    "export_topo_snapshot",
     "flip_diagonal",
     "graph_laplacian_step",
     "get_mesh_movement_mode",
@@ -247,7 +356,11 @@ __all__ = [
     "make_tri_mesh_buffer",
     "make_unit_square_model",
     "load_snapshot_npz",
+    "load_topo_snapshot",
     "mesh_topology_from_points_and_elements",
+    "mapped_quad_mesh",
+    "mode1_history_payload",
+    "mode1_metrics_payload",
     "optimize_mode1_fixed_topology",
     "quad_area_magnitudes",
     "quad_icn",
@@ -265,8 +378,11 @@ __all__ = [
     "quad_topology_from_elements",
     "restart_result_topology",
     "plot_mode1_matplotlib",
+    "plot_mode1_gmsh",
     "plot_mode1_pyvista",
-    "plot_mode1_viper",
+    "plot_topo_pyvista",
+    "plot_topo_viser",
+    "build_mode1_visualization_payload",
     "polygon_domain_quad_mesh",
     "polygon_domain_quad_mesh_tagged",
     "polygon_domain_tri_mesh",
@@ -296,6 +412,8 @@ __all__ = [
     "surface_transfinite_interpolation",
     "summarize_mode1_result",
     "summarize_mode2_restart_result",
+    "sphere_surface_tri_mesh",
+    "sphere_surface_tri_mesh_tagged",
     "sphere_volume_tet_mesh",
     "sphere_volume_tet_mesh_tagged",
     "tet_icn",
@@ -318,8 +436,30 @@ __all__ = [
     "unit_cube_tet_mesh",
     "unit_interval_line_mesh",
     "unit_square_points",
+    "visualize_mode1",
+    "visualize_mode1_result",
+    "visualize_mode2_result",
+    "visualize_mode3_state",
+    "visualize_mode4_state",
+    "visualize_mode5_state",
+    "visualize_topo_state",
     "unit_square_quad_mesh",
     "unit_square_tri_mesh",
     "update_points",
     "uv_triangle_quality_objective",
 ]
+
+
+def __getattr__(name: str):
+    try:
+        module_name, attr_name = _EXPORT_MAP[name]
+    except KeyError as exc:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
+    module = import_module(module_name, __name__)
+    value = getattr(module, attr_name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(__all__))

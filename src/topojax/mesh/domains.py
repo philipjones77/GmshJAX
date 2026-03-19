@@ -19,6 +19,20 @@ class DomainMeshMetadata(NamedTuple):
     physical_names: dict[tuple[int, int], str]
 
 
+def _orient_surface_triangles(points: np.ndarray, elements: np.ndarray, center: np.ndarray) -> np.ndarray:
+    oriented: list[tuple[int, int, int]] = []
+    for tri in np.asarray(elements, dtype=np.int32).tolist():
+        a, b, c = [int(v) for v in tri]
+        pa, pb, pc = points[[a, b, c]]
+        normal = np.cross(pb - pa, pc - pa)
+        centroid = (pa + pb + pc) / 3.0
+        if float(np.dot(normal, centroid - center)) < 0.0:
+            oriented.append((a, c, b))
+        else:
+            oriented.append((a, b, c))
+    return np.asarray(oriented, dtype=np.int32)
+
+
 def _as_closed_loop(loop: jnp.ndarray) -> np.ndarray:
     arr = np.asarray(loop, dtype=float)
     if arr.ndim != 2 or arr.shape[1] != 2 or arr.shape[0] < 3:
@@ -671,6 +685,89 @@ def sphere_volume_tet_mesh_tagged(
     faces = _tet_boundary_faces(np.asarray(topology.elements))
     block, (key, name) = _triangle_block(faces, physical_tag=320, geometrical_tag=32, name="sphere_boundary")
     return topology, points, DomainMeshMetadata(boundary_element_blocks=(block,), physical_names={key: name})
+
+
+def sphere_surface_tri_mesh(
+    center: jnp.ndarray,
+    radius: float,
+    n_lat: int,
+    n_lon: int,
+) -> tuple[MeshTopology, jnp.ndarray]:
+    """Create a triangle surface mesh on a sphere."""
+    topology, points, _ = sphere_surface_tri_mesh_tagged(center, radius, n_lat, n_lon)
+    return topology, points
+
+
+def sphere_surface_tri_mesh_tagged(
+    center: jnp.ndarray,
+    radius: float,
+    n_lat: int,
+    n_lon: int,
+) -> tuple[MeshTopology, jnp.ndarray, DomainMeshMetadata]:
+    """Create a tagged triangle surface mesh on a sphere."""
+    if radius <= 0.0:
+        raise ValueError("radius must be positive")
+    if n_lat < 2:
+        raise ValueError("n_lat must be at least 2")
+    if n_lon < 3:
+        raise ValueError("n_lon must be at least 3")
+
+    dtype = jax_float_dtype()
+    center_arr = jnp.asarray(center, dtype=dtype)
+    center_np = np.asarray(center_arr, dtype=float)
+
+    points: list[np.ndarray] = [center_np + np.asarray([0.0, 0.0, radius], dtype=float)]
+    ring_starts: list[int] = []
+    for lat in range(1, n_lat):
+        theta = np.pi * lat / n_lat
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+        ring_starts.append(len(points))
+        for lon in range(n_lon):
+            phi = 2.0 * np.pi * lon / n_lon
+            xyz = np.asarray(
+                [
+                    radius * sin_theta * np.cos(phi),
+                    radius * sin_theta * np.sin(phi),
+                    radius * cos_theta,
+                ],
+                dtype=float,
+            )
+            points.append(center_np + xyz)
+    south_pole = len(points)
+    points.append(center_np + np.asarray([0.0, 0.0, -radius], dtype=float))
+
+    elements: list[tuple[int, int, int]] = []
+    first_ring = ring_starts[0]
+    for lon in range(n_lon):
+        a = first_ring + lon
+        b = first_ring + ((lon + 1) % n_lon)
+        elements.append((0, a, b))
+
+    for ring_index in range(len(ring_starts) - 1):
+        ring0 = ring_starts[ring_index]
+        ring1 = ring_starts[ring_index + 1]
+        for lon in range(n_lon):
+            a0 = ring0 + lon
+            b0 = ring0 + ((lon + 1) % n_lon)
+            a1 = ring1 + lon
+            b1 = ring1 + ((lon + 1) % n_lon)
+            elements.extend(((a0, a1, b1), (a0, b1, b0)))
+
+    last_ring = ring_starts[-1]
+    for lon in range(n_lon):
+        a = last_ring + lon
+        b = last_ring + ((lon + 1) % n_lon)
+        elements.append((a, south_pole, b))
+
+    points_np = np.asarray(points, dtype=float)
+    elements_np = _orient_surface_triangles(points_np, np.asarray(elements, dtype=np.int32), center_np)
+    points_out = jnp.asarray(points_np, dtype=dtype)
+    elements_out = jnp.asarray(elements_np, dtype=jnp.int32)
+    entity_tags = jnp.full((elements_out.shape[0],), 33, dtype=jnp.int32)
+    topology = mesh_topology_from_points_and_elements(points_out, elements_out, element_entity_tags=entity_tags)
+    metadata = DomainMeshMetadata(boundary_element_blocks=(), physical_names={(2, 33): "sphere_surface"})
+    return topology, points_out, metadata
 
 
 def _orient_tet(points: np.ndarray, tet: tuple[int, int, int, int]) -> tuple[int, int, int, int]:

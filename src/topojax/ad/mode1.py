@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import json
 from collections import OrderedDict
 from pathlib import Path
 from time import perf_counter
@@ -14,6 +16,8 @@ import numpy as np
 from topojax.ad._common import cached_build, coerce_runtime_points, fit_node_mask, mesh_topology_metrics, topology_cache_key
 from topojax.ad.compiled import build_quality_value_and_grad
 from topojax.io.exports import GmshElementBlock, export_binary_stl, export_gmsh_msh, export_metrics_json, export_snapshot_npz
+from topojax.io.topo_snapshot import export_topo_snapshot
+from topojax.mesh.diagnostics import element_diagnostic_fields
 from topojax.mesh.topology import MeshTopology
 from topojax.runtime import get_runtime_precision
 
@@ -135,6 +139,84 @@ def _topology_metrics(points: jnp.ndarray, topology: MeshTopology) -> dict[str, 
     return mesh_topology_metrics(points, topology)
 
 
+def _mode1_step_diagnostics_payload(result: Mode1OptimizationResult) -> list[dict[str, float | int]]:
+    rows: list[dict[str, float | int]] = []
+    for entry in result.step_diagnostics:
+        row: dict[str, float | int] = {
+            "step": int(entry.step),
+            "energy": float(entry.energy),
+            "grad_norm": float(entry.grad_norm),
+        }
+        row.update({str(key): value for key, value in entry.metrics.items()})
+        rows.append(row)
+    return rows
+
+
+def mode1_history_payload(result: Mode1OptimizationResult) -> dict[str, np.ndarray]:
+    """Return the stable Mode 1 history arrays."""
+    steps = np.arange(1, int(result.energy_history.shape[0]) + 1, dtype=np.int32)
+    return {
+        "step": steps,
+        "energy_history": np.asarray(result.energy_history),
+        "grad_norm_history": np.asarray(result.grad_norm_history),
+    }
+
+
+def mode1_metrics_payload(result: Mode1OptimizationResult) -> dict[str, float | int | bool | str]:
+    """Return the stable scalar diagnostics payload for a Mode 1 result."""
+    final_metrics = _topology_metrics(result.points, result.topology)
+    initial_energy = float(result.energy_history[0])
+    final_energy = float(result.energy_history[-1])
+    initial_grad_norm = float(result.grad_norm_history[0])
+    final_grad_norm = float(result.grad_norm_history[-1])
+    energy_drop = initial_energy - final_energy
+    grad_norm_drop = initial_grad_norm - final_grad_norm
+    relative_energy_drop = energy_drop / max(abs(initial_energy), 1.0e-12)
+    relative_grad_norm_drop = grad_norm_drop / max(abs(initial_grad_norm), 1.0e-12)
+    if final_grad_norm <= 1.0e-6 or relative_grad_norm_drop >= 0.99:
+        status = "converged"
+    elif relative_energy_drop <= 1.0e-8:
+        status = "stalled"
+    else:
+        status = "improving"
+    return {
+        **final_metrics,
+        "schema_name": "topojax.mode1.metrics",
+        "schema_version": "1.0",
+        "final_energy": final_energy,
+        "initial_energy": initial_energy,
+        "final_grad_norm": final_grad_norm,
+        "initial_grad_norm": initial_grad_norm,
+        "energy_drop": energy_drop,
+        "grad_norm_drop": grad_norm_drop,
+        "relative_energy_drop": relative_energy_drop,
+        "relative_grad_norm_drop": relative_grad_norm_drop,
+        "n_steps": int(result.energy_history.shape[0]),
+        "n_diagnostic_samples": int(len(result.step_diagnostics)),
+        "runtime_precision": get_runtime_precision(),
+        "point_dim": int(result.points.shape[1]),
+        "element_order": int(result.topology.elements.shape[1]),
+        "n_nodes": int(result.topology.n_nodes),
+        "n_elements": int(result.topology.elements.shape[0]),
+        "status": status,
+        "converged": status == "converged",
+        "stalled": status == "stalled",
+    }
+
+
+def _write_history_csv(path: Path, rows: list[dict[str, float | int]]) -> None:
+    fieldnames: list[str] = []
+    for row in rows:
+        for key in row:
+            if key not in fieldnames:
+                fieldnames.append(key)
+    with path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+
+
 def optimize_mode1_fixed_topology(
     points: jnp.ndarray,
     topology: MeshTopology,
@@ -193,22 +275,47 @@ def export_mode1_artifacts(
     physical_names: dict[tuple[int, int], str] | None = None,
 ) -> dict[str, Path]:
     """Export final mode-1 snapshot, metrics, and mesh artifacts."""
+    from topojax.visualization import build_mode1_visualization_payload, export_mode1_visualization_payload
+
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    final_metrics = _topology_metrics(result.points, result.topology)
-    final_metrics = {
-        **final_metrics,
-        "final_energy": float(result.energy_history[-1]),
-        "final_grad_norm": float(result.grad_norm_history[-1]),
-        "n_steps": int(result.energy_history.shape[0]),
+    final_metrics = mode1_metrics_payload(result)
+    history_payload = mode1_history_payload(result)
+    step_rows = _mode1_step_diagnostics_payload(result)
+    element_fields = {
+        key: np.asarray(value)
+        for key, value in element_diagnostic_fields(result.points, result.topology.elements).items()
     }
+    visualization_payload = build_mode1_visualization_payload(
+        result.points,
+        result.topology,
+        title=f"{prefix} final mesh",
+        metrics=final_metrics,
+    )
     snap_path = out_dir / f"{prefix}_final_snapshot.npz"
+    topo_snap_path = out_dir / f"{prefix}_final_snapshot.topo.npz"
     json_path = out_dir / f"{prefix}_final_metrics.json"
     msh_path = out_dir / f"{prefix}_final_mesh.msh"
     hist_path = out_dir / f"{prefix}_history.npz"
+    hist_json_path = out_dir / f"{prefix}_history.json"
+    hist_csv_path = out_dir / f"{prefix}_history.csv"
+    viewer_path = out_dir / f"{prefix}_viewer_payload.json"
     stl_path = out_dir / f"{prefix}_final_surface.stl"
 
     export_snapshot_npz(snap_path, result.points, result.topology.elements, metrics=final_metrics)
+    export_topo_snapshot(
+        topo_snap_path,
+        result.points,
+        result.topology,
+        metrics=final_metrics,
+        history=history_payload,
+        step_diagnostics=step_rows,
+        element_fields=element_fields,
+        visualization_payload=visualization_payload,
+        physical_names=physical_names,
+        extra_element_blocks=extra_element_blocks,
+        metadata={"artifact_kind": "mode1-final"},
+    )
     export_metrics_json(json_path, final_metrics)
     export_gmsh_msh(
         msh_path,
@@ -220,14 +327,20 @@ def export_mode1_artifacts(
     )
     np.savez(
         hist_path,
-        energy_history=np.asarray(result.energy_history),
-        grad_norm_history=np.asarray(result.grad_norm_history),
+        **history_payload,
     )
+    hist_json_path.write_text(json.dumps(step_rows, indent=2, sort_keys=True), encoding="utf-8")
+    _write_history_csv(hist_csv_path, step_rows)
+    export_mode1_visualization_payload(viewer_path, result.points, result.topology, title=f"{prefix} final mesh", metrics=final_metrics)
     artifacts = {
         "snapshot": snap_path,
+        "topo_snapshot": topo_snap_path,
         "metrics": json_path,
         "mesh": msh_path,
         "history": hist_path,
+        "history_json": hist_json_path,
+        "history_csv": hist_csv_path,
+        "viewer_payload": viewer_path,
     }
     if export_stl_surface:
         export_binary_stl(stl_path, result.points, result.topology.elements)
@@ -299,10 +412,12 @@ def collect_mode1_jax_diagnostics(
 
 def summarize_mode1_result(result: Mode1OptimizationResult) -> dict[str, Any]:
     """Return a compact scalar summary of a mode-1 optimization run."""
-    final_metrics = _topology_metrics(result.points, result.topology)
+    final_metrics = mode1_metrics_payload(result)
     return {
         "final_energy": float(result.energy_history[-1]),
         "final_grad_norm": float(result.grad_norm_history[-1]),
         "steps": int(result.energy_history.shape[0]),
-        **final_metrics,
+        "status": final_metrics["status"],
+        "converged": final_metrics["converged"],
+        **_topology_metrics(result.points, result.topology),
     }

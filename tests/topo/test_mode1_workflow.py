@@ -16,6 +16,13 @@ def test_mode1_line_workflow_create_export_import(tmp_path: Path) -> None:
     assert imported.topology.elements.shape[1] == 2
 
 
+def test_mode1_square_workflow(tmp_path: Path) -> None:
+    domain = initialize_mode1_domain("square", nx=7, ny=5, family="quad")
+    run = run_mode1_workflow(domain, output_dir=tmp_path, prefix="square", steps=6, step_size=0.02, diagnostics_every=3)
+    imported = load_gmsh_msh(run.artifacts["mesh"])
+    assert imported.primary_element_kind == "quad"
+
+
 def test_mode1_polygon_workflow_and_import_workflow(tmp_path: Path) -> None:
     outer = jnp.asarray([[0.0, 0.0], [2.0, 0.0], [2.0, 1.0], [1.2, 1.0], [1.2, 2.0], [0.0, 2.0]])
     hole = jnp.asarray([[0.45, 0.45], [0.95, 0.45], [0.95, 0.95], [0.45, 0.95]])
@@ -65,6 +72,34 @@ def test_mode1_box_volume_workflow(tmp_path: Path) -> None:
     imported = load_gmsh_msh(run.artifacts["mesh"])
     assert imported.primary_element_kind == "tetra"
     assert run.artifacts["stl"].exists()
+
+
+def test_mode1_box_alias_workflow(tmp_path: Path) -> None:
+    domain = initialize_mode1_domain("box", nx=5, ny=4, nz=3)
+    run = run_mode1_workflow(domain, output_dir=tmp_path, prefix="box_alias_workflow", steps=4, step_size=0.012, diagnostics_every=2)
+    imported = load_gmsh_msh(run.artifacts["mesh"])
+    assert imported.primary_element_kind == "tetra"
+
+
+def test_mode1_sphere_surface_workflow(tmp_path: Path) -> None:
+    domain = initialize_mode1_domain(
+        "sphere-surface",
+        center=jnp.asarray([0.5, 0.5, 0.5]),
+        radius=0.42,
+        n_lat=7,
+        n_lon=14,
+    )
+    run = run_mode1_workflow(
+        domain,
+        output_dir=tmp_path,
+        prefix="sphere_surface_workflow",
+        steps=6,
+        step_size=0.01,
+        diagnostics_every=3,
+    )
+    imported = load_gmsh_msh(run.artifacts["mesh"])
+    assert imported.primary_element_kind == "triangle"
+    assert imported.physical_names[(2, 33)] == "sphere_surface"
 
 
 def test_mode1_sphere_volume_workflow(tmp_path: Path) -> None:

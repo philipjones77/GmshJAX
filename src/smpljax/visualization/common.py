@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
+from typing import Any
 
 import jax.numpy as jnp
 import numpy as np
@@ -65,6 +66,14 @@ class ViewerDiagnostics:
     transl_norm: float
     betas_norm: float
     expression_norm: float
+
+
+@dataclass(frozen=True)
+class ViewerAppearance:
+    mesh_color: tuple[float, float, float] = (0.86, 0.72, 0.56)
+    joint_color: tuple[float, float, float] = (0.86, 0.16, 0.12)
+    skeleton_color: tuple[float, float, float] = (0.12, 0.32, 0.88)
+    background_color: tuple[float, float, float] = (1.0, 1.0, 1.0)
 
 
 def infer_joint_layout(model_like: SMPLJAXModel | OptimizedSMPLJAX) -> tuple[int, int, int, int]:
@@ -161,6 +170,76 @@ def parent_relative_joint_positions(
     if transl is not None:
         out[0] = out[0] + np.asarray(transl, dtype=np.float32)
     return out
+
+
+def create_polydata_from_vertices_faces(vertices: np.ndarray, faces: np.ndarray):
+    """Build a PyVista triangular surface mesh from vertex and face arrays."""
+    try:
+        import pyvista as pv
+    except Exception as exc:
+        raise RuntimeError("pyvista is required to build PolyData") from exc
+
+    verts = np.asarray(vertices, dtype=np.float32)
+    tris = np.asarray(faces, dtype=np.int32)
+    if verts.ndim != 2 or verts.shape[1] != 3:
+        raise ValueError("vertices must have shape (N, 3)")
+    if tris.ndim != 2 or tris.shape[1] != 3:
+        raise ValueError("faces must have shape (F, 3)")
+    face_cells = np.hstack([np.full((tris.shape[0], 1), 3, dtype=np.int32), tris]).reshape(-1)
+    return pv.PolyData(verts, face_cells)
+
+
+def skeleton_connections_from_parents(parents: np.ndarray) -> list[tuple[int, int]]:
+    """Return parent-child skeleton edges from a SMPL-family parent array."""
+    arr = np.asarray(parents, dtype=np.int32).reshape(-1)
+    return [(int(parent), idx) for idx, parent in enumerate(arr.tolist()) if idx > 0 and parent >= 0]
+
+
+def create_skeleton_polydata(
+    joints: np.ndarray,
+    connections: list[tuple[int, int]],
+):
+    """Build a PyVista line-set for a SMPL-family skeleton."""
+    try:
+        import pyvista as pv
+    except Exception as exc:
+        raise RuntimeError("pyvista is required to build skeleton PolyData") from exc
+
+    pts = np.asarray(joints, dtype=np.float32)
+    if pts.ndim != 2 or pts.shape[1] != 3:
+        raise ValueError("joints must have shape (J, 3)")
+    valid_lines = [[2, parent, child] for parent, child in connections if parent < pts.shape[0] and child < pts.shape[0]]
+    poly = pv.PolyData(pts)
+    if valid_lines:
+        poly.lines = np.asarray(valid_lines, dtype=np.int64).reshape(-1)
+    return poly
+
+
+def add_point_labels_compat(
+    plotter: Any,
+    points: np.ndarray,
+    labels: list[str],
+    *,
+    font_size: int = 12,
+):
+    """Add PyVista point labels with compatibility across versions."""
+    try:
+        return plotter.add_point_labels(
+            points,
+            labels,
+            font_size=font_size,
+            point_size=0,
+            shape_opacity=0,
+            always_visible=True,
+        )
+    except TypeError:
+        return plotter.add_point_labels(
+            points,
+            labels,
+            font_size=font_size,
+            point_size=0,
+            shape_opacity=0,
+        )
 
 
 def axis_angles_to_wxyz(axis_angles: np.ndarray) -> np.ndarray:

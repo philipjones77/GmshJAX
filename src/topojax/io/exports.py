@@ -286,9 +286,16 @@ def load_snapshot_npz(path: str | Path) -> dict[str, np.ndarray]:
     return {k: arr[k] for k in arr.files}
 
 
-def export_metrics_json(path: str | Path, metrics: Mapping[str, float]) -> None:
+def export_metrics_json(path: str | Path, metrics: Mapping[str, object]) -> None:
     """Write scalar diagnostics as JSON."""
+    def _json_scalar(value: object):
+        if isinstance(value, np.generic):
+            return value.item()
+        if isinstance(value, np.ndarray):
+            return value.tolist()
+        return value
+
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     with p.open("w", encoding="utf-8") as f:
-        json.dump({k: float(v) for k, v in metrics.items()}, f, indent=2, sort_keys=True)
+        json.dump({k: _json_scalar(v) for k, v in metrics.items()}, f, indent=2, sort_keys=True)

@@ -13,6 +13,7 @@ from topojax.mesh.domains import (
     implicit_volume_tet_mesh_tagged,
     polygon_domain_quad_mesh_tagged,
     polygon_domain_tri_mesh_tagged,
+    sphere_surface_tri_mesh_tagged,
     sphere_volume_tet_mesh_tagged,
 )
 from topojax.mesh.operators import mesh_quality_energy, quad_mesh_quality_energy, tet_mesh_quality_energy
@@ -162,6 +163,30 @@ def test_sphere_volume_tet_mesh_supports_mode1_and_export(tmp_path: Path) -> Non
     assert imported.physical_names[(2, 320)] == "sphere_boundary"
     assert len(imported.extra_element_blocks) == 1
     assert imported.extra_element_blocks[0].element_kind == "triangle"
+
+
+def test_sphere_surface_tri_mesh_supports_mode1_and_export(tmp_path: Path) -> None:
+    topo, points, metadata = sphere_surface_tri_mesh_tagged(
+        jnp.asarray([0.5, 0.5, 0.5]),
+        0.42,
+        7,
+        14,
+    )
+    distorted = points.at[:, 2].set(points[:, 2] + 0.01 * jnp.sin(jnp.pi * points[:, 0]))
+    initial = float(mesh_quality_energy(distorted, topo))
+    result = optimize_mode1_fixed_topology(distorted, topo, steps=6, step_size=0.01, diagnostics_every=3)
+    final = float(mesh_quality_energy(result.points, topo))
+    artifacts = export_mode1_artifacts(
+        tmp_path,
+        result,
+        prefix="sphere_surface",
+        extra_element_blocks=metadata.boundary_element_blocks,
+        physical_names=metadata.physical_names,
+    )
+    imported = load_gmsh_msh(artifacts["mesh"])
+    assert final <= initial + 1.0e-8
+    assert imported.primary_element_kind == "triangle"
+    assert imported.physical_names[(2, 33)] == "sphere_surface"
 
 
 def test_extruded_polygon_tet_mesh_supports_mode1_and_export(tmp_path: Path) -> None:

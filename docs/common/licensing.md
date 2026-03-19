@@ -38,3 +38,13 @@ The authoritative path matrix lives in [../../LICENSES/CODE_AND_CONTENT.md](/hom
 `private_data/smpl/` is not a blanket MIT asset bucket. Repository-authored metadata and small synthetic fixtures may be MIT, but third-party SMPL-family model files remain governed by their upstream terms.
 
 See [../../LICENSES/ASSET_BOUNDARY.md](/home/phili/projects/TopoSmplJAX/LICENSES/ASSET_BOUNDARY.md).
+
+## Third-Party Notices
+
+Some repository areas reference or adapt upstream work from:
+
+- Gmsh
+- `smplx`
+- SMPL-X-associated tooling such as the Meshcapade SMPL Blender Add-on
+
+Those acknowledgments and upstream-license boundaries are tracked in [../../LICENSES/THIRD_PARTY_NOTICES.md](/home/phili/projects/TopoSmplJAX/LICENSES/THIRD_PARTY_NOTICES.md).

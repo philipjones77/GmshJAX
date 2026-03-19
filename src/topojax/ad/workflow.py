@@ -62,7 +62,10 @@ def run_mode1_workflow(
     gmsh_executable: str = "gmsh",
     gmsh_extra_args: list[str] | None = None,
 ) -> Mode1WorkflowRun:
-    """Run the end-to-end Mode 1 optimize-export-view workflow."""
+    """Run the end-to-end Mode 1 optimize-export-view workflow.
+
+    Native Gmsh is the default external viewer when `launch_gmsh=True`.
+    """
     result = optimize_mode1_fixed_topology(
         domain.points,
         domain.topology,

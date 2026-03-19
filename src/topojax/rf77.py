@@ -17,13 +17,19 @@ from topojax.io.exports import GmshElementBlock
 from topojax.mesh.domains import DomainMeshMetadata
 from topojax.mesh.operators import line_element_lengths, triangle_signed_areas
 from topojax.mesh.topology import MeshTopology
-from topojax.visualization import _points3
 
 
 GeometryFn = Callable[[Mapping[str, Any] | None], jnp.ndarray]
 GeodesicFn = Callable[[jnp.ndarray, MeshTopology], jnp.ndarray]
 GraphWeightFn = Callable[[jnp.ndarray, jnp.ndarray, str], jnp.ndarray]
 OperatorHook = Callable[[jnp.ndarray, MeshTopology], jnp.ndarray]
+
+
+def _points3(points: jnp.ndarray) -> np.ndarray:
+    arr = np.asarray(points)
+    if arr.shape[1] == 2:
+        arr = np.concatenate([arr, np.zeros((arr.shape[0], 1), dtype=arr.dtype)], axis=1)
+    return arr
 
 
 def _builder_version() -> str | None:

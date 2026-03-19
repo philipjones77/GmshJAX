@@ -19,6 +19,8 @@ This repository does not grant a license to:
 
 If such files are placed under `private_data/smpl/`, they remain governed by their upstream license or EULA.
 
+Reference implementations and associated tooling such as `smplx` or the Meshcapade SMPL Blender Add-on are also not relicensed by this repository merely because they are referenced here.
+
 ## Maintainer Rule
 
 Only check in SMPL-family assets when redistribution is clearly permitted. Otherwise keep the repository limited to:
@@ -27,3 +29,5 @@ Only check in SMPL-family assets when redistribution is clearly permitted. Other
 - validation tools
 - small synthetic fixtures
 - metadata and documentation
+
+See [THIRD_PARTY_NOTICES.md](/home/phili/projects/TopoSmplJAX/LICENSES/THIRD_PARTY_NOTICES.md) for explicit attribution and upstream notice tracking.

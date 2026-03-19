@@ -9,5 +9,9 @@
 		{
 			"path": "../gmsh"
 		}
-	]
+	],
+	"settings": {
+		"python.defaultInterpreterPath": "/home/phili/miniforge3/envs/jax/bin/python",
+		"python.terminal.activateEnvironment": true
+	}
 }

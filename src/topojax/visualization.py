@@ -1,13 +1,30 @@
-"""Visualization helpers for fixed-topology mode-1 workflows."""
+"""Visualization helpers for TopoJAX mesh movement modes.
+
+Native Gmsh remains the default external viewer for Mode 1 mesh inspection.
+PyVista and Viser support a shared payload/interface layer across Modes 1-5.
+Modes 2-5 expose stable payloads and viewer entry points even where the full
+algorithmic implementation is still incomplete.
+"""
 
 from __future__ import annotations
 
-from typing import Any
+import json
+from importlib import import_module
+from pathlib import Path
+from typing import Any, NamedTuple
 
 import jax.numpy as jnp
 import numpy as np
 
-from topojax.mesh.topology import MeshTopology
+from topojax.mesh.topology import MeshTopology, mesh_topology_from_points_and_elements
+
+
+class TopoVisualizationState(NamedTuple):
+    mode: int
+    points: jnp.ndarray
+    topology: MeshTopology
+    title: str
+    metadata: dict[str, Any]
 
 
 def _points3(points: jnp.ndarray) -> np.ndarray:
@@ -38,6 +55,73 @@ def _tet_boundary_faces(elements: np.ndarray) -> np.ndarray:
 def _pyvista_lines(elements: np.ndarray) -> np.ndarray:
     counts = np.full((elements.shape[0], 1), 2, dtype=np.int32)
     return np.hstack([counts, elements]).reshape(-1)
+
+
+def _surface_faces(points: jnp.ndarray, topology: MeshTopology) -> np.ndarray | None:
+    elems = np.asarray(topology.elements, dtype=np.int32)
+    order = int(elems.shape[1])
+    dim = int(np.asarray(points).shape[1])
+    if order == 3:
+        return elems
+    if order == 4 and dim == 2:
+        return np.vstack([elems[:, [0, 1, 2]], elems[:, [0, 2, 3]]])
+    if order == 4 and dim == 3:
+        return _tet_boundary_faces(elems)
+    return None
+
+
+def _topology_kind(points: jnp.ndarray, topology: MeshTopology) -> str:
+    order = int(topology.elements.shape[1])
+    dim = int(np.asarray(points).shape[1])
+    if order == 2:
+        return "line"
+    if order == 3:
+        return "triangle"
+    if order == 4 and dim == 2:
+        return "quad"
+    if order == 4 and dim == 3:
+        return "tetra"
+    return "unknown"
+
+
+def _coerce_topology(points: jnp.ndarray, topology: MeshTopology | None, elements: jnp.ndarray | None) -> MeshTopology:
+    if topology is not None:
+        return topology
+    if elements is None:
+        raise ValueError("Provide either topology or elements")
+    return mesh_topology_from_points_and_elements(points, jnp.asarray(elements, dtype=jnp.int32))
+
+
+def _state_from_result(
+    result: object,
+    *,
+    mode: int,
+    title: str,
+    points: jnp.ndarray | None = None,
+    topology: MeshTopology | None = None,
+    elements: jnp.ndarray | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> TopoVisualizationState:
+    if hasattr(result, "points") and hasattr(result, "topology"):
+        pts = jnp.asarray(getattr(result, "points"))
+        topo = getattr(result, "topology")
+        return TopoVisualizationState(mode=mode, points=pts, topology=topo, title=title, metadata=dict(metadata or {}))
+    if hasattr(result, "points") and hasattr(result, "elements"):
+        pts = jnp.asarray(getattr(result, "points"))
+        topo = _coerce_topology(pts, None, jnp.asarray(getattr(result, "elements"), dtype=jnp.int32))
+        meta = dict(metadata or {})
+        if hasattr(result, "phases"):
+            meta["phases"] = [phase._asdict() for phase in getattr(result, "phases")]
+        return TopoVisualizationState(mode=mode, points=pts, topology=topo, title=title, metadata=meta)
+    if points is None:
+        raise TypeError("Provide a compatible result object or explicit points/topology/elements")
+    return TopoVisualizationState(
+        mode=mode,
+        points=jnp.asarray(points),
+        topology=_coerce_topology(jnp.asarray(points), topology, elements),
+        title=title,
+        metadata=dict(metadata or {}),
+    )
 
 
 def build_pyvista_dataset(points: jnp.ndarray, topology: MeshTopology):
@@ -74,41 +158,9 @@ def plot_mode1_matplotlib(
     *,
     title: str = "Mode 1 Fixed-Topology Mesh",
 ):
-    """Return a Matplotlib figure for a mode-1 mesh state."""
-    import matplotlib.pyplot as plt
-    from matplotlib.collections import LineCollection
-    from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
-
-    pts = np.asarray(points)
-    edges = np.asarray(topology.edges, dtype=np.int32)
-    order = int(topology.elements.shape[1])
-    dim = int(pts.shape[1])
-
-    if dim == 2:
-        fig, ax = plt.subplots(figsize=(6, 5))
-        segs = pts[edges]
-        ax.add_collection(LineCollection(segs, colors="black", linewidths=0.8))
-        ax.scatter(pts[:, 0], pts[:, 1], s=8, c="tab:blue")
-        ax.autoscale()
-        ax.set_aspect("equal", adjustable="box")
-        ax.set_title(title)
-        return fig
-
-    fig = plt.figure(figsize=(6, 5))
-    ax = fig.add_subplot(111, projection="3d")
-    pts3 = _points3(points)
-    if order == 3:
-        poly = Poly3DCollection(pts3[np.asarray(topology.elements, dtype=np.int32)], alpha=0.25, facecolor="tab:blue", edgecolor="black")
-        ax.add_collection3d(poly)
-    elif order == 4:
-        faces = _tet_boundary_faces(np.asarray(topology.elements, dtype=np.int32))
-        poly = Poly3DCollection(pts3[faces], alpha=0.25, facecolor="tab:blue", edgecolor="black")
-        ax.add_collection3d(poly)
-    lines = pts3[edges]
-    ax.add_collection3d(Line3DCollection(lines, colors="black", linewidths=0.6))
-    ax.scatter(pts3[:, 0], pts3[:, 1], pts3[:, 2], s=8, c="tab:red")
-    ax.set_title(title)
-    return fig
+    """Return a Matplotlib figure for a mesh state."""
+    backend = import_module("topojax._visualization_backends.matplotlib_backend")
+    return backend.plot_mode1_matplotlib(points, topology, title=title)
 
 
 def plot_mode1_pyvista(
@@ -119,47 +171,358 @@ def plot_mode1_pyvista(
     show: bool = False,
 ):
     """Build a PyVista plotter for a mode-1 mesh state."""
-    try:
-        import pyvista as pv
-    except ModuleNotFoundError as exc:
-        raise ModuleNotFoundError("pyvista is not installed; install pyvista to enable this backend") from exc
-
-    dataset = build_pyvista_dataset(points, topology)
-    plotter = pv.Plotter(off_screen=not show)
-    plotter.add_mesh(dataset, show_edges=True, color="lightblue")
-    plotter.add_title(title)
-    if show:
-        plotter.show()
-    return plotter
+    state = TopoVisualizationState(mode=1, points=points, topology=topology, title=title, metadata={})
+    return plot_topo_pyvista(state, show=show)
 
 
-def build_mode1_viper_payload(points: jnp.ndarray, topology: MeshTopology, *, title: str = "Mode 1 Fixed-Topology Mesh") -> dict[str, Any]:
-    """Build a backend-neutral payload for a viper-style viewer."""
+def plot_topo_pyvista(
+    state: TopoVisualizationState,
+    *,
+    show: bool = False,
+    show_nodes: bool = True,
+    show_edges: bool = True,
+    background_color: str = "white",
+):
+    """Build a PyVista plotter for a Topo mode state."""
+    backend = import_module("topojax._visualization_backends.pyvista_backend")
+    return backend.plot_topo_pyvista(
+        state,
+        show=show,
+        show_nodes=show_nodes,
+        show_edges=show_edges,
+        background_color=background_color,
+    )
+
+
+def build_topo_visualization_payload(
+    state: TopoVisualizationState,
+    *,
+    metrics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build a stable viewer-neutral payload for Topo visualization artifacts."""
+    pts = np.asarray(state.points)
+    topology = state.topology
     return {
-        "title": title,
-        "points": np.asarray(points).tolist(),
+        "schema_name": "topojax.visualization.payload",
+        "schema_version": "1.0",
+        "title": state.title,
+        "mode": int(state.mode),
+        "points": pts.tolist(),
         "elements": np.asarray(topology.elements, dtype=np.int32).tolist(),
         "edges": np.asarray(topology.edges, dtype=np.int32).tolist(),
         "element_order": int(topology.elements.shape[1]),
-        "point_dim": int(np.asarray(points).shape[1]),
+        "point_dim": int(pts.shape[1]),
+        "n_nodes": int(topology.n_nodes),
+        "n_elements": int(topology.elements.shape[0]),
+        "topology_kind": _topology_kind(state.points, topology),
+        "bounds": {"min": pts.min(axis=0).tolist(), "max": pts.max(axis=0).tolist()},
+        "metadata": state.metadata,
+        "metrics": {
+            str(key): (value.item() if isinstance(value, np.generic) else value)
+            for key, value in (metrics or {}).items()
+        },
     }
 
 
-def plot_mode1_viper(points: jnp.ndarray, topology: MeshTopology, *, title: str = "Mode 1 Fixed-Topology Mesh"):
-    """Invoke an installed `viper` backend if available.
+def build_mode1_visualization_payload(
+    points: jnp.ndarray,
+    topology: MeshTopology,
+    *,
+    title: str = "Mode 1 Fixed-Topology Mesh",
+    metrics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build a stable payload for Mode 1 visualization artifacts."""
+    state = TopoVisualizationState(mode=1, points=points, topology=topology, title=title, metadata={})
+    payload = build_topo_visualization_payload(state, metrics=metrics)
+    payload["backend"] = "viewer-neutral"
+    return payload
 
-    The adapter performs capability detection because the package API is not part
-    of TopoJAX. If the installed package does not expose a recognized entry point,
-    the caller can still use `build_mode1_viper_payload` directly.
+
+def build_mode2_visualization_payload(
+    result: object,
+    *,
+    title: str = "Mode 2 Remesh-Restart Result",
+    metrics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build the stable payload contract for Mode 2 visualization."""
+    state = _state_from_result(result, mode=2, title=title)
+    payload = build_topo_visualization_payload(state, metrics=metrics)
+    payload["implementation_status"] = "implemented"
+    return payload
+
+
+def build_mode3_visualization_payload(
+    *,
+    points: jnp.ndarray,
+    topology: MeshTopology | None = None,
+    elements: jnp.ndarray | None = None,
+    metrics: dict[str, Any] | None = None,
+    title: str = "Mode 3 Soft-Connectivity State",
+    candidate_logits: jnp.ndarray | None = None,
+) -> dict[str, Any]:
+    """Build the stable payload contract for Mode 3 visualization.
+
+    This defines the payload and interface now even though the full viewer-specific
+    overlays for soft connectivity are still evolving.
     """
-    payload = build_mode1_viper_payload(points, topology, title=title)
-    try:
-        import viper  # type: ignore
-    except ModuleNotFoundError as exc:
-        raise ModuleNotFoundError("viper is not installed; install viper to enable this backend") from exc
+    state = _state_from_result(
+        object(),
+        mode=3,
+        title=title,
+        points=points,
+        topology=topology,
+        elements=elements,
+        metadata={"candidate_logits": None if candidate_logits is None else np.asarray(candidate_logits).tolist()},
+    )
+    payload = build_topo_visualization_payload(state, metrics=metrics)
+    payload["implementation_status"] = "stubbed-interface"
+    return payload
 
-    if hasattr(viper, "plot_mesh"):
-        return viper.plot_mesh(payload["points"], payload["elements"], title=payload["title"])
-    if hasattr(viper, "show"):
-        return viper.show(payload)
-    raise RuntimeError("Installed viper package does not expose a recognized mesh visualization entry point")
+
+def build_mode4_visualization_payload(
+    *,
+    points: jnp.ndarray,
+    topology: MeshTopology | None = None,
+    elements: jnp.ndarray | None = None,
+    metrics: dict[str, Any] | None = None,
+    title: str = "Mode 4 Straight-Through State",
+    candidate_logits: jnp.ndarray | None = None,
+) -> dict[str, Any]:
+    """Build the stable payload contract for Mode 4 visualization."""
+    state = _state_from_result(
+        object(),
+        mode=4,
+        title=title,
+        points=points,
+        topology=topology,
+        elements=elements,
+        metadata={"candidate_logits": None if candidate_logits is None else np.asarray(candidate_logits).tolist()},
+    )
+    payload = build_topo_visualization_payload(state, metrics=metrics)
+    payload["implementation_status"] = "stubbed-interface"
+    return payload
+
+
+def build_mode5_visualization_payload(
+    *,
+    points: jnp.ndarray,
+    topology: MeshTopology | None = None,
+    elements: jnp.ndarray | None = None,
+    metrics: dict[str, Any] | None = None,
+    title: str = "Mode 5 Fully-Dynamic State",
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build the stable payload contract for Mode 5 visualization."""
+    state = _state_from_result(
+        object(),
+        mode=5,
+        title=title,
+        points=points,
+        topology=topology,
+        elements=elements,
+        metadata=metadata,
+    )
+    payload = build_topo_visualization_payload(state, metrics=metrics)
+    payload["implementation_status"] = "planned-interface"
+    return payload
+
+
+def export_mode1_visualization_payload(
+    path: str | Path,
+    points: jnp.ndarray,
+    topology: MeshTopology,
+    *,
+    title: str = "Mode 1 Fixed-Topology Mesh",
+    metrics: dict[str, Any] | None = None,
+) -> Path:
+    """Write the stable Mode 1 visualization payload to JSON."""
+    payload = build_mode1_visualization_payload(points, topology, title=title, metrics=metrics)
+    out_path = Path(path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    return out_path
+
+
+def plot_mode1_gmsh(
+    points: jnp.ndarray,
+    topology: MeshTopology,
+    *,
+    mesh_path: str | Path | None = None,
+    gmsh_executable: str = "gmsh",
+    wait: bool = False,
+    extra_args: list[str] | None = None,
+):
+    """Export a temporary `.msh` and open it in the native Gmsh GUI."""
+    backend = import_module("topojax._visualization_backends.gmsh_backend")
+    return backend.plot_mode1_gmsh(
+        points,
+        topology,
+        mesh_path=mesh_path,
+        gmsh_executable=gmsh_executable,
+        wait=wait,
+        extra_args=extra_args,
+    )
+
+
+def plot_topo_viser(
+    state: TopoVisualizationState,
+    *,
+    host: str = "127.0.0.1",
+    port: int = 8081,
+    block: bool = False,
+):
+    """Launch a minimal Viser scene for a Topo mode state."""
+    backend = import_module("topojax._visualization_backends.viser_backend")
+    return backend.plot_topo_viser(state, host=host, port=port, block=block)
+
+
+def visualize_mode1(
+    points: jnp.ndarray,
+    topology: MeshTopology,
+    *,
+    backend: str = "gmsh",
+    title: str = "Mode 1 Fixed-Topology Mesh",
+    show: bool = False,
+    mesh_path: str | Path | None = None,
+    gmsh_executable: str = "gmsh",
+    gmsh_extra_args: list[str] | None = None,
+    wait: bool = False,
+):
+    """Render a Mode 1 mesh through the selected backend."""
+    state = TopoVisualizationState(mode=1, points=points, topology=topology, title=title, metadata={})
+    if backend == "matplotlib":
+        return plot_mode1_matplotlib(points, topology, title=title)
+    if backend == "pyvista":
+        return plot_topo_pyvista(state, show=show)
+    if backend == "gmsh":
+        return plot_mode1_gmsh(
+            points,
+            topology,
+            mesh_path=mesh_path,
+            gmsh_executable=gmsh_executable,
+            wait=wait,
+            extra_args=gmsh_extra_args,
+        )
+    if backend == "viser":
+        return plot_topo_viser(state)
+    raise ValueError(f"Unsupported visualization backend: {backend}")
+
+
+def visualize_mode1_result(
+    result,
+    *,
+    backend: str = "gmsh",
+    title: str = "Mode 1 Fixed-Topology Result",
+    show: bool = False,
+    mesh_path: str | Path | None = None,
+    gmsh_executable: str = "gmsh",
+    gmsh_extra_args: list[str] | None = None,
+    wait: bool = False,
+):
+    """Render a Mode 1 result through the selected backend."""
+    return visualize_mode1(
+        result.points,
+        result.topology,
+        backend=backend,
+        title=title,
+        show=show,
+        mesh_path=mesh_path,
+        gmsh_executable=gmsh_executable,
+        gmsh_extra_args=gmsh_extra_args,
+        wait=wait,
+    )
+
+
+def visualize_mode2_result(
+    result,
+    *,
+    backend: str = "gmsh",
+    title: str = "Mode 2 Remesh-Restart Result",
+    show: bool = False,
+    mesh_path: str | Path | None = None,
+    gmsh_executable: str = "gmsh",
+    gmsh_extra_args: list[str] | None = None,
+    wait: bool = False,
+):
+    """Render a Mode 2 result through the selected backend."""
+    state = _state_from_result(result, mode=2, title=title)
+    return visualize_topo_state(
+        state,
+        backend=backend,
+        show=show,
+        mesh_path=mesh_path,
+        gmsh_executable=gmsh_executable,
+        gmsh_extra_args=gmsh_extra_args,
+        wait=wait,
+    )
+
+
+def visualize_mode3_state(
+    *,
+    points: jnp.ndarray,
+    topology: MeshTopology | None = None,
+    elements: jnp.ndarray | None = None,
+    backend: str = "gmsh",
+    title: str = "Mode 3 Soft-Connectivity State",
+    show: bool = False,
+):
+    """Render a Mode 3 state through the selected backend."""
+    state = _state_from_result(object(), mode=3, title=title, points=points, topology=topology, elements=elements)
+    return visualize_topo_state(state, backend=backend, show=show)
+
+
+def visualize_mode4_state(
+    *,
+    points: jnp.ndarray,
+    topology: MeshTopology | None = None,
+    elements: jnp.ndarray | None = None,
+    backend: str = "gmsh",
+    title: str = "Mode 4 Straight-Through State",
+    show: bool = False,
+):
+    """Render a Mode 4 state through the selected backend."""
+    state = _state_from_result(object(), mode=4, title=title, points=points, topology=topology, elements=elements)
+    return visualize_topo_state(state, backend=backend, show=show)
+
+
+def visualize_mode5_state(
+    *,
+    points: jnp.ndarray,
+    topology: MeshTopology | None = None,
+    elements: jnp.ndarray | None = None,
+    backend: str = "gmsh",
+    title: str = "Mode 5 Fully-Dynamic State",
+    show: bool = False,
+):
+    """Render a Mode 5 state through the selected backend."""
+    state = _state_from_result(object(), mode=5, title=title, points=points, topology=topology, elements=elements)
+    return visualize_topo_state(state, backend=backend, show=show)
+
+
+def visualize_topo_state(
+    state: TopoVisualizationState,
+    *,
+    backend: str = "gmsh",
+    show: bool = False,
+    mesh_path: str | Path | None = None,
+    gmsh_executable: str = "gmsh",
+    gmsh_extra_args: list[str] | None = None,
+    wait: bool = False,
+):
+    """Render a generic Topo visualization state through the selected backend."""
+    if backend == "matplotlib":
+        return plot_mode1_matplotlib(state.points, state.topology, title=state.title)
+    if backend == "pyvista":
+        return plot_topo_pyvista(state, show=show)
+    if backend == "gmsh":
+        return plot_mode1_gmsh(
+            state.points,
+            state.topology,
+            mesh_path=mesh_path,
+            gmsh_executable=gmsh_executable,
+            wait=wait,
+            extra_args=gmsh_extra_args,
+        )
+    if backend == "viser":
+        return plot_topo_viser(state)
+    raise ValueError(f"Unsupported visualization backend: {backend}")

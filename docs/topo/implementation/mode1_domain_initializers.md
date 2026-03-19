@@ -8,6 +8,8 @@ Line meshes are represented as 2-node elements with fixed connectivity. The Mode
 
 ## 2D Polygon Domains
 
+`mapped_quad_mesh` covers the structured tensor-product counterpart for logically rectangular 2D domains. It keeps the exact structured quad connectivity from the unit-square lattice and maps only the node coordinates through a user-supplied vectorized reference-to-physical transform.
+
 `polygon_domain_tri_mesh` samples polygon loops, fills the interior with a point set, triangulates it, and explicitly recovers constrained loop edges. The result is a discrete initialization stage followed by a fixed triangle topology for JAX optimization.
 
 The tagged variant emits Gmsh line blocks for the outer loop and each hole loop, along with stable physical names.

@@ -29,13 +29,17 @@ The current Mode 1 surface now includes:
 - supported Gmsh MSH 2.2 import for line, triangle, quad, and tetra meshes
 - a single high-level create or import, optimize, export, and optional viewer-launch workflow
 - tagged boundary export through Gmsh line and triangle element blocks with physical names
+- stable scalar metrics and history payloads for Mode 1 results
+- stable final snapshot export in both compact and richer topology-aware forms
+- viewer-neutral visualization payload export for later inspection workflows
+- repository-supported viewing through native Gmsh, Matplotlib, PyVista, and Viser
 
 ## Validation State
 
 The following validation points have been verified during this work:
 
 - the repo virtual environment now includes the optional visualization dependencies needed by `tests/topo/test_mode1_fixed_topology.py`
-- `tests/topo/test_mode1_fixed_topology.py` passes in the repo virtual environment
+- the focused Mode 1 viewer dispatch and payload tests pass in the repo virtual environment
 - the focused non-visualization Mode 1 slice has previously passed for arbitrary domains, workflow coverage, and diagnostics or export coverage
 
 Recommended verification commands:
@@ -55,6 +59,7 @@ Mode 1 is now in good shape for practical fixed-topology use, but these boundari
 - no CAD-kernel-level geometry modeling or classification parity with original Gmsh
 - no hex, prism, or pyramid Mode 1 domain initialization path
 - no general-purpose body-fitted 3D unstructured mesher beyond the current structured, implicit, and extrusion-based initializers
+- PyVista support is considered supported, but it is still more environment-sensitive than native Gmsh and Matplotlib
 
 ## Next Implementation Plan
 
@@ -63,9 +68,9 @@ The next tranche should focus on strengthening the bridge from practical fixed-t
 ### Near-Term Priorities
 
 - add one fresh-process validation path or task wrapper for the standard Mode 1 regression slice to avoid terminal-state ambiguity during long runs
-- add `docs/topo/specs/` material for mesh topology classes and domain-initializer semantics that are now effectively first-class runtime objects
 - expand import and export coverage with more mixed-block round-trip tests and stricter metadata assertions
 - add at least one additional practical 3D initializer if needed, but only if it fits the fixed-topology contract cleanly
+- carry the same viewer robustness standard now achieved for Mode 1 into Mode 2 restart workflows
 
 ### Medium-Term Priorities
 
@@ -76,5 +81,4 @@ The next tranche should focus on strengthening the bridge from practical fixed-t
 ### Explicit Recommendation
 
 Do not spend the next cycle chasing broad Gmsh feature parity inside Mode 1. The better technical path is to treat the current Mode 1 coverage as the stable fixed-topology baseline and move new effort into transfer, controller, and surrogate infrastructure.
-
 

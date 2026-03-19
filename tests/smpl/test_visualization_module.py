@@ -8,11 +8,14 @@ from smpljax.utils import SMPLModelData
 from smpljax.visualization.common import (
     CameraPreset,
     ViewerConfig,
+    ViewerAppearance,
     ViewerState,
     available_presets,
     axis_angles_to_wxyz,
     build_forward_inputs,
     camera_from_triplet,
+    create_polydata_from_vertices_faces,
+    create_skeleton_polydata,
     compute_rest_joints,
     evaluate_model,
     infer_joint_layout,
@@ -20,6 +23,7 @@ from smpljax.visualization.common import (
     parent_relative_joint_positions,
     preset_named,
     save_viewer_state,
+    skeleton_connections_from_parents,
     summarize_viewer_state,
 )
 from smpljax.diagnostics import DiagnosticsLogger, diagnostics_payload, write_runtime_diagnostics
@@ -121,6 +125,46 @@ def test_axis_angles_to_wxyz_identity_and_pi_rotation() -> None:
         dtype=np.float32,
     )
     np.testing.assert_allclose(out, expected, atol=1e-5)
+
+
+def test_skeleton_connections_from_parents_skips_root() -> None:
+    parents = np.array([-1, 0, 0, 2], dtype=np.int32)
+    assert skeleton_connections_from_parents(parents) == [(0, 1), (0, 2), (2, 3)]
+
+
+def test_viewer_appearance_defaults() -> None:
+    appearance = ViewerAppearance()
+    assert appearance.mesh_color == (0.86, 0.72, 0.56)
+    assert appearance.joint_color == (0.86, 0.16, 0.12)
+    assert appearance.skeleton_color == (0.12, 0.32, 0.88)
+
+
+def test_create_polydata_helpers_with_fake_pyvista(monkeypatch) -> None:
+    class _FakePolyData:
+        def __init__(self, points, faces=None):
+            self.points = np.asarray(points)
+            self.faces = None if faces is None else np.asarray(faces)
+            self.lines = None
+
+    class _FakePv:
+        PolyData = _FakePolyData
+
+    import sys
+
+    monkeypatch.setitem(sys.modules, "pyvista", _FakePv())
+    mesh = create_polydata_from_vertices_faces(
+        np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float32),
+        np.array([[0, 1, 2]], dtype=np.int32),
+    )
+    assert mesh.points.shape == (3, 3)
+    assert mesh.faces.shape == (4,)
+
+    skeleton = create_skeleton_polydata(
+        np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float32),
+        [(0, 1)],
+    )
+    assert skeleton.points.shape == (2, 3)
+    assert skeleton.lines.shape == (3,)
 
 
 def test_evaluate_model_returns_vertices_and_joints() -> None:

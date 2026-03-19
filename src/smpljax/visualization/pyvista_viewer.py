@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -12,13 +13,18 @@ from smpljax.optimized import OptimizedSMPLJAX
 from smpljax.visualization.common import (
     ViewerConfig,
     ViewerState,
+    ViewerAppearance,
+    add_point_labels_compat,
     available_presets,
     camera_from_triplet,
+    create_polydata_from_vertices_faces,
+    create_skeleton_polydata,
     load_viewer_state,
     preset_named,
     save_viewer_state,
     evaluate_model,
     resolve_runtime,
+    skeleton_connections_from_parents,
     summarize_viewer_state,
 )
 
@@ -26,13 +32,26 @@ from smpljax.visualization.common import (
 @dataclass(frozen=True)
 class PyVistaViewerConfig(ViewerConfig):
     window_size: tuple[int, int] = (1280, 900)
+    show_joints: bool = True
+    show_skeleton: bool = True
+    joint_labels: bool = False
+    off_screen: bool = False
+    screenshot_path: Path | None = None
+    mesh_opacity: float = 1.0
+    appearance: ViewerAppearance = ViewerAppearance()
 
 
 def run_pyvista_viewer(
     config: PyVistaViewerConfig,
     model: SMPLJAXModel | None = None,
     runtime: OptimizedSMPLJAX | None = None,
-) -> None:
+) -> Any:
+    """Run the PyVista SMPL viewer.
+
+    Portions of the mesh/joint/skeleton viewer surface are adapted from ideas in
+    the MIT-licensed `smplx-toolbox` visualization module, reworked for this
+    repository's runtime and data model.
+    """
     try:
         import pyvista as pv
     except Exception as exc:
@@ -64,14 +83,23 @@ def run_pyvista_viewer(
     transl = state.transl.copy()
 
     faces = np.asarray(runtime_obj.data.faces_tensor, dtype=np.int32)
-    face_cells = np.hstack([np.full((faces.shape[0], 1), 3, dtype=np.int32), faces]).reshape(-1)
-    mesh = pv.PolyData(np.asarray(runtime_obj.data.v_template, dtype=np.float32), face_cells)
+    mesh = create_polydata_from_vertices_faces(np.asarray(runtime_obj.data.v_template, dtype=np.float32), faces)
+    skeleton_connections = skeleton_connections_from_parents(np.asarray(runtime_obj.data.parents, dtype=np.int32))
 
-    plotter = pv.Plotter(window_size=config.window_size)
+    plotter = pv.Plotter(window_size=config.window_size, off_screen=config.off_screen)
     update_counter = {"value": 0}
     diagnostics_logger = DiagnosticsLogger(config.diagnostics_jsonl) if config.diagnostics_jsonl is not None else None
+    actors: dict[str, Any] = {}
     plotter.add_axes()
-    actor = plotter.add_mesh(mesh, color="#dcaa78", smooth_shading=True, show_edges=False)
+    plotter.set_background(config.appearance.background_color)
+    actor = plotter.add_mesh(
+        mesh,
+        color=config.appearance.mesh_color,
+        smooth_shading=True,
+        show_edges=False,
+        opacity=float(config.mesh_opacity),
+    )
+    actors["mesh"] = actor
     plotter.add_text("smplJAX + pyvista", position="upper_left", font_size=10)
     if camera is not None:
         plotter.camera_position = [camera.position, camera.focal_point, camera.up]
@@ -88,9 +116,50 @@ def run_pyvista_viewer(
         )
         return np.asarray(out.vertices[0], dtype=np.float32)
 
+    def _compute_joints() -> np.ndarray:
+        out = evaluate_model(
+            runtime_obj,
+            state=ViewerState(
+                betas=betas,
+                expression=expr,
+                full_pose_aa=full_pose,
+                transl=transl,
+            ),
+        )
+        return np.asarray(out.joints[0], dtype=np.float32)
+
+    def _reset_overlay(name: str) -> None:
+        actor_obj = actors.pop(name, None)
+        if actor_obj is not None:
+            try:
+                plotter.remove_actor(actor_obj)
+            except Exception:
+                pass
+
     def _refresh_mesh() -> None:
         vertices = _compute_vertices()
         mesh.points = vertices
+        joints = _compute_joints()
+        _reset_overlay("joints")
+        _reset_overlay("joint_labels")
+        _reset_overlay("skeleton")
+        if config.show_joints:
+            actors["joints"] = plotter.add_points(
+                joints,
+                color=config.appearance.joint_color,
+                point_size=10,
+                render_points_as_spheres=True,
+            )
+            if config.joint_labels:
+                joint_names = [f"j{idx}" for idx in range(joints.shape[0])]
+                actors["joint_labels"] = add_point_labels_compat(plotter, joints, joint_names, font_size=12)
+        if config.show_skeleton:
+            skeleton = create_skeleton_polydata(joints, skeleton_connections)
+            actors["skeleton"] = plotter.add_mesh(
+                skeleton,
+                color=config.appearance.skeleton_color,
+                line_width=3,
+            )
         if config.export_state_json is not None:
             save_viewer_state(
                 config.export_state_json,
@@ -190,7 +259,12 @@ def run_pyvista_viewer(
 
     plotter.add_checkbox_button_widget(_toggle_wireframe, value=False, position=(15, 15), size=28)
     _refresh_mesh()
-    plotter.show()
+    if config.screenshot_path is not None:
+        config.screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+        plotter.screenshot(str(config.screenshot_path))
+    if not config.off_screen:
+        plotter.show(auto_close=False)
+    return plotter
 
 
 def _parse_args() -> PyVistaViewerConfig:
@@ -206,6 +280,11 @@ def _parse_args() -> PyVistaViewerConfig:
     parser.add_argument("--no-optimized-runtime", action="store_true")
     parser.add_argument("--window-width", type=int, default=1280)
     parser.add_argument("--window-height", type=int, default=900)
+    parser.add_argument("--hide-joints", action="store_true")
+    parser.add_argument("--hide-skeleton", action="store_true")
+    parser.add_argument("--joint-labels", action="store_true")
+    parser.add_argument("--off-screen", action="store_true")
+    parser.add_argument("--screenshot-path", type=Path, default=None)
     args = parser.parse_args()
     return PyVistaViewerConfig(
         model_path=args.model_path,
@@ -218,6 +297,11 @@ def _parse_args() -> PyVistaViewerConfig:
         export_state_json=args.export_state_json,
         use_optimized_runtime=not args.no_optimized_runtime,
         window_size=(args.window_width, args.window_height),
+        show_joints=not args.hide_joints,
+        show_skeleton=not args.hide_skeleton,
+        joint_labels=args.joint_labels,
+        off_screen=args.off_screen,
+        screenshot_path=args.screenshot_path,
     )
 
 

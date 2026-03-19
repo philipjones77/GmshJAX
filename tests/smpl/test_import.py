@@ -14,16 +14,21 @@ from smpljax import (
 from smpljax import WarmupCoverage
 from smpljax.visualization import (
     CameraPreset,
+    PyVistaViewerConfig,
+    ViewerAppearance,
     ViewerConfig,
     ViewerPreset,
     ViewerState,
     available_presets,
+    create_polydata_from_vertices_faces,
+    create_skeleton_polydata,
     evaluate_model,
     load_viewer_state,
     preset_named,
     run_pyvista_viewer,
     run_viser_viewer,
     save_viewer_state,
+    skeleton_connections_from_parents,
 )
 
 
@@ -34,10 +39,15 @@ def test_public_symbols() -> None:
     assert create_optimized is not None
     assert create_runtime is not None
     assert ViewerConfig is not None
+    assert PyVistaViewerConfig is not None
+    assert ViewerAppearance is not None
     assert CameraPreset is not None
     assert ViewerPreset is not None
     assert ViewerState is not None
     assert available_presets is not None
+    assert skeleton_connections_from_parents is not None
+    assert create_polydata_from_vertices_faces is not None
+    assert create_skeleton_polydata is not None
     assert evaluate_model is not None
     assert preset_named is not None
     assert save_viewer_state is not None

@@ -19,3 +19,4 @@ Licensing rule:
 - do not assume files in this folder are MIT-licensed
 - converted or copied SMPL-family assets remain subject to their upstream terms unless an individual file states otherwise
 - this repository only licenses its own code, documentation, and metadata
+- acknowledge upstream sources such as SMPL, SMPL-X, `smplx`, and SMPL-X-associated tooling when local workflows depend on them

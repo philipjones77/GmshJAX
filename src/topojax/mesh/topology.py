@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import NamedTuple
+from typing import Callable, NamedTuple
 
 import jax.numpy as jnp
 
@@ -194,6 +194,32 @@ def unit_square_quad_mesh(nx: int, ny: int) -> tuple[MeshTopology, jnp.ndarray]:
     """Create fixed quad topology + initial node coordinates on the unit square."""
     points = unit_square_points(nx, ny)
     elements = structured_quads(nx, ny)
+    return mesh_topology_from_points_and_elements(points, elements), points
+
+
+def mapped_quad_mesh(
+    xi_eta_to_xy: Callable[[jnp.ndarray], jnp.ndarray],
+    nx: int,
+    ny: int,
+    *,
+    dtype=None,
+) -> tuple[MeshTopology, jnp.ndarray]:
+    """Create a structured quad topology on a mapped logical unit-square grid."""
+    points_ref = unit_square_points(nx, ny, dtype=dtype)
+    points = jnp.asarray(xi_eta_to_xy(points_ref), dtype=points_ref.dtype)
+    expected_shape = points_ref.shape
+    if points.ndim != 2 or points.shape != expected_shape:
+        raise ValueError(f"xi_eta_to_xy must return shape {expected_shape}, got {points.shape}")
+
+    elements = structured_quads(nx, ny)
+    quads = points[elements]
+    signed_area2 = jnp.sum(
+        quads[:, :, 0] * jnp.roll(quads[:, :, 1], shift=-1, axis=1)
+        - jnp.roll(quads[:, :, 0], shift=-1, axis=1) * quads[:, :, 1],
+        axis=1,
+    )
+    if bool(jnp.any(signed_area2 <= 0.0)):
+        raise ValueError("xi_eta_to_xy produced one or more non-positive-area quads")
     return mesh_topology_from_points_and_elements(points, elements), points
 
 
