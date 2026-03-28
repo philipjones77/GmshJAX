@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import jax.numpy as jnp
+import pytest
 
 from topojax.ad.restart import summarize_mode2_restart_result
 from topojax.ad.workflow import initialize_mode2_domain, run_mode2_restart_workflow
@@ -84,3 +85,27 @@ def test_mode2_tet_restart_workflow_exports_surface_stl(tmp_path: Path) -> None:
     assert imported.primary_element_kind == "tetra"
     assert run.artifacts["stl"].exists()
     assert metrics["remesh_count"] >= 1.0
+
+
+@pytest.mark.benchmark
+def test_mode2_benchmark_script_emits_expected_fields(benchmark_output_dir: Path, benchmark_runner) -> None:
+    out_json = benchmark_output_dir / "mode2_bench.json"
+    proc = benchmark_runner(
+        "benchmarks/topo/benchmark_mode2_restart.py",
+        "--kind",
+        "tri",
+        "--cycles",
+        "1",
+        "--optimization-steps",
+        "4",
+        "--out-dir",
+        str(benchmark_output_dir / "mode2_artifacts"),
+        "--out",
+        str(out_json),
+    )
+    assert proc.returncode == 0, proc.stderr
+    payload = json.loads(out_json.read_text(encoding="utf-8"))
+    assert payload["benchmark"] == "mode2_restart"
+    assert payload["kind"] == "tri"
+    assert payload["n_phases"] == 1
+    assert payload["runtime_s"] > 0.0

@@ -6,5 +6,7 @@ This folder should accumulate authored implementation material as legacy root-le
 
 Current implementation notes:
 
+- `api_runtime_implementation.md`
 - `mesh_movement_modes.md`
 - `mode1_domain_initializers.md`
+- `testing_benchmarks_examples_implementation.md`

@@ -5,8 +5,8 @@
 Unless a more specific notice says otherwise, source code, examples, tests, tooling, contracts, and authored documentation in this repository are provided under the MIT license in the repository root.
 
 Authority:
-- [../LICENSE](/home/phili/projects/TopoSmplJAX/LICENSE)
-- [THIRD_PARTY_NOTICES.md](/home/phili/projects/TopoSmplJAX/LICENSES/THIRD_PARTY_NOTICES.md)
+- [../LICENSE](../LICENSE)
+- [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)
 
 ## Path Matrix
 
@@ -14,10 +14,14 @@ MIT-licensed repository-authored material:
 
 - `src/topojax/`
 - `src/smpljax/`
-- `src/toposmpljax/`
+- `src/common/`
+- `benchmarks/common/`
+- `benchmarks/topo/`
+- `benchmarks/smpl/`
 - `tests/topo/`
 - `tests/smpl/`
 - `tests/common/`
+- `examples/common/`
 - `examples/topo/`
 - `examples/smpl/`
 - `tools/common/`
@@ -28,7 +32,6 @@ MIT-licensed repository-authored material:
 - `docs/smpl/`
 - `contracts/topo/`
 - `contracts/smpl/`
-- `common/`
 - top-level repository metadata and packaging files
 
 Special boundary:
@@ -41,7 +44,7 @@ Special boundary:
 
 `topojax`:
 - Repository code and docs for the Topo backend are MIT under the root license.
-- Some files may additionally contain Gmsh-derived material; see [THIRD_PARTY_NOTICES.md](/home/phili/projects/TopoSmplJAX/LICENSES/THIRD_PARTY_NOTICES.md).
+- Some files may additionally contain Gmsh-derived material; see [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
 
 `smpljax`:
 - Repository code, wrappers, docs, tests, and conversion tools are MIT under the root license.

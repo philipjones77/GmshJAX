@@ -129,6 +129,7 @@ Current governance docs:
 Current notation docs:
 
 - `docs/topo/notation/README.md`
+- `docs/topo/notation/glossary.md`
 
 Current standards docs:
 
@@ -141,19 +142,24 @@ Current specification docs:
 Current object docs:
 
 - `docs/topo/objects/README.md`
+- `docs/topo/objects/runtime_objects.md`
 
 Current theory docs:
 
 - `docs/topo/theory/README.md`
+- `docs/topo/theory/runtime_surface_methodology.md`
 
 Current implementation-oriented docs:
 
 - `docs/topo/implementation/README.md`
+- `docs/topo/implementation/api_runtime_implementation.md`
 - `docs/topo/implementation/milestone_m2_static_generator.md`
+- `docs/topo/implementation/testing_benchmarks_examples_implementation.md`
 
 Current status docs:
 
 - `docs/topo/status/README.md`
+- `docs/topo/status/api_test_benchmark_status.md`
 - `docs/topo/status/roadmap.md`
 - `docs/topo/status/release_checklist.md`
 - `docs/topo/status/overview.md`
@@ -161,11 +167,18 @@ Current status docs:
 Current reports docs:
 
 - `docs/topo/reports/README.md`
+- `docs/topo/reports/api_test_benchmark_inventory.md`
 
 Current practical docs:
 
 - `docs/topo/practical/README.md`
+- `docs/topo/practical/api_usage.md`
 
 Current contract docs:
 
 - `contracts/topo/api_contract.md`
+
+Operational note:
+
+- retained benchmark harnesses live under `benchmarks/topo/` and their validation is controlled through pytest benchmark-marked tests
+- user-facing notebooks and demos live under `examples/topo/`

@@ -22,28 +22,41 @@ model = create_uncached("private_data/smpl/models/validated/smplx/MODEL_NAME.npz
 Optimized runtime:
 
 ```python
-from smpljax import CachePolicy, create_optimized
+from smpljax import create_optimized
 
 runtime = create_optimized(
     "private_data/smpl/models/validated/smplx/MODEL_NAME.npz",
-    cache_policy=CachePolicy(max_compiled=4, batch_buckets=(1, 8, 16, 32, 64)),
+    backend="cpu",
+    batch_size_hint=8,
 )
 inputs = runtime.prepare_inputs(batch_size=8)
 out = runtime.forward(inputs, pose2rot=True)
 diag = runtime.diagnostics()
 ```
 
+Recommended fixed-padding envelope through the factory:
+
+```python
+runtime = create_optimized(
+    "private_data/smpl/models/validated/smplx/MODEL_NAME.npz",
+    backend="gpu",
+    batch_size_hint=24,
+    prefer_fixed_padding=True,
+)
+runtime.policy
+```
+
 Strict no-recompile window with fixed upfront padding:
 
 ```python
-from smpljax import CachePolicy, create_optimized
+from smpljax import create_optimized
 
 runtime = create_optimized(
     "private_data/smpl/models/validated/smplx/MODEL_NAME.npz",
-    cache_policy=CachePolicy(
-        fixed_padded_batch_size=32,
-        forbid_new_compiles=False,
-    ),
+    backend="cpu",
+    batch_size_hint=32,
+    fixed_padded_batch_size=32,
+    forbid_new_compiles=False,
 )
 
 # Warm once at the padded capacity, then reuse for smaller batches.
@@ -57,10 +70,10 @@ Benchmark-style fixed `32` capacity flow:
 ```python
 runtime = create_optimized(
     "private_data/smpl/models/validated/smplx/MODEL_NAME.npz",
-    cache_policy=CachePolicy(
-        fixed_padded_batch_size=32,
-        forbid_new_compiles=True,
-    ),
+    backend="cpu",
+    batch_size_hint=32,
+    fixed_padded_batch_size=32,
+    forbid_new_compiles=True,
 )
 runtime.warmup(batch_size=32, pose2rot=True)
 inputs = runtime.prepare_inputs(batch_size=16)
@@ -74,7 +87,13 @@ from smpljax import create_runtime
 
 plain = create_runtime("private_data/smpl/models/validated/smplx/MODEL_NAME.npz", mode="plain")
 uncached = create_runtime("private_data/smpl/models/validated/smplx/MODEL_NAME.npz", mode="uncached")
-optimized = create_runtime("private_data/smpl/models/validated/smplx/MODEL_NAME.npz", mode="optimized")
+optimized = create_runtime(
+    "private_data/smpl/models/validated/smplx/MODEL_NAME.npz",
+    mode="optimized",
+    backend="cpu",
+    batch_size_hint=16,
+    max_compiled=4,
+)
 ```
 
 Mesh export surface:

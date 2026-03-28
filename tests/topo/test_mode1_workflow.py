@@ -1,8 +1,10 @@
 from pathlib import Path
+import types
 
 import jax.numpy as jnp
 
 from topojax.ad.workflow import initialize_mode1_domain, run_mode1_workflow
+from topojax.io.exports import GmshElementBlock, export_gmsh_msh
 from topojax.io.imports import load_gmsh_msh
 
 
@@ -40,6 +42,178 @@ def test_mode1_polygon_quad_workflow(tmp_path: Path) -> None:
     run = run_mode1_workflow(domain, output_dir=tmp_path, prefix="polygon_quad_workflow", steps=8, step_size=0.015, diagnostics_every=4)
     imported = load_gmsh_msh(run.artifacts["mesh"])
     assert imported.primary_element_kind == "quad"
+
+
+def test_mode1_polygon_gmsh_backend_initialization(monkeypatch, tmp_path: Path) -> None:
+    outer = jnp.asarray([[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0]])
+
+    def _fake_run(cmd, capture_output, text, check):
+        msh_path = Path(cmd[-1])
+        points = jnp.asarray([[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0]], dtype=jnp.float32)
+        elements = jnp.asarray([[0, 1, 2], [0, 2, 3]], dtype=jnp.int32)
+        boundary = GmshElementBlock(
+            elements=jnp.asarray([[0, 1], [1, 2], [2, 3], [3, 0]], dtype=jnp.int32),
+            element_kind="line",
+            physical_tags=jnp.asarray([100, 100, 100, 100], dtype=jnp.int32),
+            geometrical_tags=jnp.asarray([10, 10, 10, 10], dtype=jnp.int32),
+        )
+        export_gmsh_msh(
+            msh_path,
+            points,
+            elements,
+            physical_tags=jnp.asarray([1, 1], dtype=jnp.int32),
+            geometrical_tags=jnp.asarray([1, 1], dtype=jnp.int32),
+            element_kind="triangle",
+            extra_element_blocks=(boundary,),
+            physical_names={(1, 100): "outer_boundary", (2, 1): "domain"},
+        )
+        return types.SimpleNamespace(returncode=0, stderr="")
+
+    monkeypatch.setattr("topojax.mesh.domains._load_gmsh_module", lambda: (_ for _ in ()).throw(ModuleNotFoundError("gmsh")))
+    monkeypatch.setattr("topojax.mesh.domains.subprocess.run", _fake_run)
+    domain = initialize_mode1_domain("polygon", outer_boundary=outer, target_edge_size=0.25, backend="gmsh", gmsh_executable="gmsh")
+    assert domain.topology.elements.shape == (2, 3)
+    assert domain.metadata is not None
+    assert domain.metadata.physical_names[(1, 100)] == "outer_boundary"
+
+
+def test_mode1_polygon_gmsh_backend_prefers_python_bindings(monkeypatch) -> None:
+    outer = jnp.asarray([[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0]])
+    called = {"write": 0, "generate": 0}
+    recombine_flag = {"value": 0.0}
+
+    class _FakeGeo:
+        def __init__(self):
+            self._next = 1
+
+        def addPoint(self, x, y, z, mesh_size):
+            del x, y, z, mesh_size
+            tag = self._next
+            self._next += 1
+            return tag
+
+        def addLine(self, a, b):
+            del a, b
+            tag = self._next
+            self._next += 1
+            return tag
+
+        def addCurveLoop(self, line_ids):
+            del line_ids
+            tag = self._next
+            self._next += 1
+            return tag
+
+        def addPlaneSurface(self, curve_loop_ids):
+            del curve_loop_ids
+            return 1
+
+        def synchronize(self):
+            return None
+
+    class _FakeModel:
+        def __init__(self):
+            self.geo = _FakeGeo()
+            self.mesh = types.SimpleNamespace(generate=self._generate)
+
+        def add(self, name):
+            self.name = name
+
+        def addPhysicalGroup(self, dim, tags, tag):
+            del dim, tags, tag
+            return None
+
+        def setPhysicalName(self, dim, tag, name):
+            del dim, tag, name
+            return None
+
+        def _generate(self, dim):
+            assert dim == 2
+            called["generate"] += 1
+
+    class _FakeGmsh:
+        def __init__(self):
+            self.model = _FakeModel()
+            self.option = types.SimpleNamespace(setNumber=self._set_number)
+            self._initialized = False
+
+        def isInitialized(self):
+            return self._initialized
+
+        def initialize(self):
+            self._initialized = True
+
+        def finalize(self):
+            self._initialized = False
+
+        def write(self, path):
+            called["write"] += 1
+            points = jnp.asarray([[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0]], dtype=jnp.float32)
+            if recombine_flag["value"]:
+                elements = jnp.asarray([[0, 1, 2, 3]], dtype=jnp.int32)
+                kind = "quad"
+            else:
+                elements = jnp.asarray([[0, 1, 2], [0, 2, 3]], dtype=jnp.int32)
+                kind = "triangle"
+            boundary = GmshElementBlock(
+                elements=jnp.asarray([[0, 1], [1, 2], [2, 3], [3, 0]], dtype=jnp.int32),
+                element_kind="line",
+                physical_tags=jnp.asarray([100, 100, 100, 100], dtype=jnp.int32),
+                geometrical_tags=jnp.asarray([10, 10, 10, 10], dtype=jnp.int32),
+            )
+            export_gmsh_msh(
+                path,
+                points,
+                elements,
+                physical_tags=jnp.asarray([1] * elements.shape[0], dtype=jnp.int32),
+                geometrical_tags=jnp.asarray([1] * elements.shape[0], dtype=jnp.int32),
+                element_kind=kind,
+                extra_element_blocks=(boundary,),
+                physical_names={(1, 100): "outer_boundary", (2, 1): "domain"},
+            )
+
+        def _set_number(self, name, value):
+            if name == "Mesh.RecombineAll":
+                recombine_flag["value"] = float(value)
+
+    monkeypatch.setattr("topojax.mesh.domains._load_gmsh_module", lambda: _FakeGmsh())
+    monkeypatch.setattr(
+        "topojax.mesh.domains.subprocess.run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("CLI fallback should not be used")),
+    )
+    domain = initialize_mode1_domain("polygon", outer_boundary=outer, target_edge_size=0.25, backend="gmsh", progress=False)
+    assert called == {"write": 1, "generate": 1}
+    assert domain.topology.elements.shape == (2, 3)
+    assert domain.metadata is not None
+    assert domain.metadata.physical_names[(1, 100)] == "outer_boundary"
+
+
+def test_mode1_polygon_default_backend_prefers_gmsh_and_falls_back_to_native(monkeypatch) -> None:
+    outer = jnp.asarray([[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0]])
+    calls: list[str] = []
+
+    def _fake_polygon_domain_tri_mesh_tagged(*args, backend: str, **kwargs):
+        del args, kwargs
+        calls.append(backend)
+        if backend == "gmsh":
+            raise FileNotFoundError("gmsh not found")
+        points = jnp.asarray([[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0]], dtype=jnp.float32)
+        elements = jnp.asarray([[0, 1, 2], [0, 2, 3]], dtype=jnp.int32)
+        from topojax.mesh.topology import mesh_topology_from_points_and_elements
+        from topojax.mesh.domains import DomainMeshMetadata
+
+        return (
+            mesh_topology_from_points_and_elements(points, elements),
+            points,
+            DomainMeshMetadata(boundary_element_blocks=(), physical_names={(2, 1): "domain"}),
+        )
+
+    monkeypatch.setattr("topojax.ad.workflow_common.polygon_domain_tri_mesh_tagged", _fake_polygon_domain_tri_mesh_tagged)
+    domain = initialize_mode1_domain("polygon", outer_boundary=outer, target_edge_size=0.25, progress=False)
+    assert calls == ["gmsh", "native"]
+    assert domain.topology.elements.shape == (2, 3)
+    assert domain.metadata is not None
+    assert domain.metadata.physical_names[(2, 1)] == "domain"
 
 
 def test_mode1_extruded_workflow(tmp_path: Path) -> None:

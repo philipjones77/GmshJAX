@@ -63,29 +63,69 @@ def _build_mode1_scan(
     topology: MeshTopology,
     *,
     steps: int,
-    record_points: bool,
+    diagnostic_indices: tuple[int, ...] = (),
 ):
-    key = ("mode1_scan", topology_cache_key(topology), int(steps), bool(record_points))
+    normalized_indices = tuple(int(index) for index in diagnostic_indices)
+    key = ("mode1_scan", topology_cache_key(topology), int(steps), normalized_indices)
 
     def _build():
         value_and_grad = build_quality_value_and_grad(topology)
 
-        @jax.jit
-        def run(points: jnp.ndarray, step_size, mask: jnp.ndarray):
-            pts0 = coerce_runtime_points(points)
-            mask_local = jnp.asarray(mask, dtype=pts0.dtype)
-            step_size_local = jnp.asarray(step_size, dtype=pts0.dtype)
+        if normalized_indices:
+            diagnostic_steps = jnp.asarray(normalized_indices, dtype=jnp.int32)
+            n_diagnostics = len(normalized_indices)
 
-            def body(pts: jnp.ndarray, _):
-                value, grad = value_and_grad(pts)
-                masked_grad = grad * mask_local[:, None]
-                next_pts = pts - step_size_local * masked_grad
-                if record_points:
-                    return next_pts, (next_pts, value, jnp.linalg.norm(masked_grad))
-                return next_pts, (value, jnp.linalg.norm(masked_grad))
+            @jax.jit
+            def run(points: jnp.ndarray, step_size, mask: jnp.ndarray):
+                pts0 = coerce_runtime_points(points)
+                mask_local = jnp.asarray(mask, dtype=pts0.dtype)
+                step_size_local = jnp.asarray(step_size, dtype=pts0.dtype)
+                empty_snaps = jnp.zeros((n_diagnostics, pts0.shape[0], pts0.shape[1]), dtype=pts0.dtype)
 
-            final_points, outputs = jax.lax.scan(body, pts0, xs=None, length=steps)
-            return final_points, outputs
+                def body(carry, step_index: jnp.ndarray):
+                    pts, snapshots, snapshot_slot = carry
+                    value, grad = value_and_grad(pts)
+                    masked_grad = grad * mask_local[:, None]
+                    next_pts = pts - step_size_local * masked_grad
+                    target_slot = jnp.minimum(snapshot_slot, n_diagnostics - 1)
+                    target_step = diagnostic_steps[target_slot]
+                    should_store = jnp.logical_and(snapshot_slot < n_diagnostics, step_index == target_step)
+
+                    def _store(args):
+                        local_snaps, local_slot = args
+                        return local_snaps.at[local_slot].set(next_pts), local_slot + 1
+
+                    snapshots, snapshot_slot = jax.lax.cond(
+                        should_store,
+                        _store,
+                        lambda args: args,
+                        (snapshots, snapshot_slot),
+                    )
+                    return (next_pts, snapshots, snapshot_slot), (value, jnp.linalg.norm(masked_grad))
+
+                (final_points, snapshots, _), outputs = jax.lax.scan(
+                    body,
+                    (pts0, empty_snaps, jnp.asarray(0, dtype=jnp.int32)),
+                    xs=jnp.arange(steps, dtype=jnp.int32),
+                )
+                return final_points, outputs, snapshots
+
+        else:
+
+            @jax.jit
+            def run(points: jnp.ndarray, step_size, mask: jnp.ndarray):
+                pts0 = coerce_runtime_points(points)
+                mask_local = jnp.asarray(mask, dtype=pts0.dtype)
+                step_size_local = jnp.asarray(step_size, dtype=pts0.dtype)
+
+                def body(pts: jnp.ndarray, _):
+                    value, grad = value_and_grad(pts)
+                    masked_grad = grad * mask_local[:, None]
+                    next_pts = pts - step_size_local * masked_grad
+                    return next_pts, (value, jnp.linalg.norm(masked_grad))
+
+                final_points, outputs = jax.lax.scan(body, pts0, xs=None, length=steps)
+                return final_points, outputs
 
         return run
 
@@ -115,7 +155,6 @@ def build_mode1_optimizer(
     run = _build_mode1_scan(
         topology,
         steps=steps,
-        record_points=False,
     )
 
     def wrapped(points: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
@@ -231,18 +270,23 @@ def optimize_mode1_fixed_topology(
     step_diagnostics: list[Mode1StepDiagnostics] = []
 
     if diagnostics_every > 0:
+        diagnostic_steps = _diagnostic_step_indices(steps, diagnostics_every)
         history_optimizer = _build_mode1_scan(
             topology,
             steps=steps,
-            record_points=True,
+            diagnostic_indices=diagnostic_steps,
         )
         mask = fit_node_mask(movable_mask, int(pts0.shape[0]))
         if mask is None:
             mask = jnp.ones((pts0.shape[0],), dtype=bool)
-        pts, outputs = history_optimizer(pts0, step_size, mask)
-        points_history, energy_history, grad_norm_history = outputs
-        for step in _diagnostic_step_indices(steps, diagnostics_every):
-            snap = points_history[step]
+        if diagnostic_steps:
+            pts, outputs, diagnostic_snapshots = history_optimizer(pts0, step_size, mask)
+        else:
+            pts, outputs = history_optimizer(pts0, step_size, mask)
+            diagnostic_snapshots = jnp.zeros((0, pts0.shape[0], pts0.shape[1]), dtype=pts0.dtype)
+        energy_history, grad_norm_history = outputs
+        for snap_index, step in enumerate(diagnostic_steps):
+            snap = diagnostic_snapshots[snap_index]
             metrics = _topology_metrics(snap, topology)
             step_diagnostics.append(
                 Mode1StepDiagnostics(

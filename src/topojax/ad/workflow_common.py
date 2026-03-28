@@ -34,15 +34,59 @@ class MeshWorkflowDomain(NamedTuple):
     metadata: DomainMeshMetadata | None = None
 
 
-def initialize_workflow_domain(kind: str, **kwargs: Any) -> MeshWorkflowDomain:
+def _emit_progress(message: str, *, progress: bool) -> None:
+    if progress:
+        print(f"[topojax] {message}")
+
+
+def _initialize_polygon_workflow_domain(
+    mesh_fn,
+    *,
+    progress: bool,
+    gmsh_executable: str,
+    **kwargs: Any,
+) -> MeshWorkflowDomain:
+    requested_backend = kwargs.pop("backend", None)
+    if requested_backend is not None:
+        topo, points, metadata = mesh_fn(
+            **kwargs,
+            backend=str(requested_backend),
+            gmsh_executable=gmsh_executable,
+        )
+        return MeshWorkflowDomain(topo, points, metadata)
+
+    try:
+        _emit_progress("initializing polygon domain with gmsh backend", progress=progress)
+        topo, points, metadata = mesh_fn(
+            **kwargs,
+            backend="gmsh",
+            gmsh_executable=gmsh_executable,
+        )
+        return MeshWorkflowDomain(topo, points, metadata)
+    except (FileNotFoundError, OSError, RuntimeError) as exc:
+        _emit_progress(
+            f"gmsh polygon meshing unavailable, falling back to native backend: {exc}",
+            progress=progress,
+        )
+        topo, points, metadata = mesh_fn(
+            **kwargs,
+            backend="native",
+            gmsh_executable=gmsh_executable,
+        )
+        return MeshWorkflowDomain(topo, points, metadata)
+
+
+def initialize_workflow_domain(kind: str, *, progress: bool = True, **kwargs: Any) -> MeshWorkflowDomain:
     """Initialize a supported domain for fixed-topology or restart workflows."""
     if kind in ("line", "interval", "polyline"):
+        _emit_progress(f"initializing {kind} domain", progress=progress)
         if "points" in kwargs:
             topo, points = polyline_mesh(kwargs["points"], closed=bool(kwargs.get("closed", False)))
         else:
             topo, points = unit_interval_line_mesh(int(kwargs.get("n", 16)))
         return MeshWorkflowDomain(topology=topo, points=points)
     if kind == "square":
+        _emit_progress("initializing square domain", progress=progress)
         nx = int(kwargs.get("nx", 16))
         ny = int(kwargs.get("ny", 16))
         family = str(kwargs.get("family", "tri"))
@@ -63,22 +107,29 @@ def initialize_workflow_domain(kind: str, **kwargs: Any) -> MeshWorkflowDomain:
             raise ValueError("square family must be 'tri' or 'quad'")
         return MeshWorkflowDomain(topo, points)
     if kind == "polygon":
-        topo, points, metadata = polygon_domain_tri_mesh_tagged(
-            kwargs["outer_boundary"],
+        return _initialize_polygon_workflow_domain(
+            polygon_domain_tri_mesh_tagged,
+            progress=progress,
+            gmsh_executable=str(kwargs.get("gmsh_executable", "gmsh")),
+            outer_boundary=kwargs["outer_boundary"],
             holes=kwargs.get("holes"),
             target_edge_size=kwargs.get("target_edge_size"),
             interior_relaxation=float(kwargs.get("interior_relaxation", 0.35)),
+            backend=kwargs.get("backend"),
         )
-        return MeshWorkflowDomain(topo, points, metadata)
     if kind == "polygon-quad":
-        topo, points, metadata = polygon_domain_quad_mesh_tagged(
-            kwargs["outer_boundary"],
+        return _initialize_polygon_workflow_domain(
+            polygon_domain_quad_mesh_tagged,
+            progress=progress,
+            gmsh_executable=str(kwargs.get("gmsh_executable", "gmsh")),
+            outer_boundary=kwargs["outer_boundary"],
             holes=kwargs.get("holes"),
             target_edge_size=kwargs.get("target_edge_size"),
             interior_relaxation=float(kwargs.get("interior_relaxation", 0.35)),
+            backend=kwargs.get("backend"),
         )
-        return MeshWorkflowDomain(topo, points, metadata)
     if kind == "extruded":
+        _emit_progress("initializing extruded polygon volume", progress=progress)
         topo, points, metadata = extruded_polygon_tet_mesh(
             kwargs["outer_boundary"],
             holes=kwargs.get("holes"),
@@ -88,6 +139,7 @@ def initialize_workflow_domain(kind: str, **kwargs: Any) -> MeshWorkflowDomain:
         )
         return MeshWorkflowDomain(topo, points, metadata)
     if kind == "box-volume":
+        _emit_progress("initializing box volume domain", progress=progress)
         topo, points, metadata = box_volume_tet_mesh_tagged(
             kwargs["bbox_min"],
             kwargs["bbox_max"],
@@ -97,6 +149,7 @@ def initialize_workflow_domain(kind: str, **kwargs: Any) -> MeshWorkflowDomain:
         )
         return MeshWorkflowDomain(topo, points, metadata)
     if kind == "box":
+        _emit_progress("initializing box domain", progress=progress)
         if "bbox_min" in kwargs or "bbox_max" in kwargs:
             topo, points, metadata = box_volume_tet_mesh_tagged(
                 kwargs.get("bbox_min", jnp.asarray([0.0, 0.0, 0.0])),
@@ -110,6 +163,7 @@ def initialize_workflow_domain(kind: str, **kwargs: Any) -> MeshWorkflowDomain:
             metadata = None
         return MeshWorkflowDomain(topo, points, metadata)
     if kind == "implicit-volume":
+        _emit_progress("initializing implicit volume domain", progress=progress)
         topo, points, metadata = implicit_volume_tet_mesh_tagged(
             kwargs["level_set_fn"],
             kwargs["bbox_min"],
@@ -120,6 +174,7 @@ def initialize_workflow_domain(kind: str, **kwargs: Any) -> MeshWorkflowDomain:
         )
         return MeshWorkflowDomain(topo, points, metadata)
     if kind == "sphere-volume":
+        _emit_progress("initializing sphere volume domain", progress=progress)
         topo, points, metadata = sphere_volume_tet_mesh_tagged(
             kwargs["center"],
             float(kwargs["radius"]),
@@ -130,6 +185,7 @@ def initialize_workflow_domain(kind: str, **kwargs: Any) -> MeshWorkflowDomain:
         )
         return MeshWorkflowDomain(topo, points, metadata)
     if kind == "sphere-surface":
+        _emit_progress("initializing sphere surface domain", progress=progress)
         topo, points, metadata = sphere_surface_tri_mesh_tagged(
             kwargs["center"],
             float(kwargs["radius"]),
@@ -138,6 +194,7 @@ def initialize_workflow_domain(kind: str, **kwargs: Any) -> MeshWorkflowDomain:
         )
         return MeshWorkflowDomain(topo, points, metadata)
     if kind == "import-msh":
+        _emit_progress("loading imported gmsh mesh", progress=progress)
         imported = load_gmsh_msh(kwargs["path"], primary_element_kind=kwargs.get("primary_element_kind"))
         metadata = DomainMeshMetadata(
             boundary_element_blocks=imported.extra_element_blocks,

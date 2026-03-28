@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import time
 
+import jax
 import jax.numpy as jnp
 
 from smpljax.optimized import CachePolicy, OptimizedSMPLJAX
@@ -40,8 +41,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Benchmark optimized SMPLJAX forward runtime.")
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--warmup-batch-size", type=int, default=None)
+    parser.add_argument("--backend", type=str, default=None)
+    parser.add_argument("--prefer-fixed-padding", action="store_true")
     parser.add_argument("--fixed-padded-batch-size", type=int, default=None)
     parser.add_argument("--forbid-new-compiles", action="store_true")
+    parser.add_argument("--max-compiled", type=int, default=None)
     parser.add_argument("--iters", type=int, default=10)
     parser.add_argument("--num-verts", type=int, default=64)
     parser.add_argument("--num-joints", type=int, default=24)
@@ -51,10 +55,15 @@ def main() -> None:
     args = parser.parse_args()
 
     dtype = jnp.float64 if args.dtype == "float64" else jnp.float32
-    policy = CachePolicy(
+    batch_size_hint = args.warmup_batch_size or args.fixed_padded_batch_size or args.batch_size
+    policy = CachePolicy.recommended(
         dtype=dtype,
+        backend=args.backend,
+        batch_size_hint=batch_size_hint,
+        prefer_fixed_padding=args.prefer_fixed_padding,
         fixed_padded_batch_size=args.fixed_padded_batch_size,
-        forbid_new_compiles=args.forbid_new_compiles,
+        forbid_new_compiles=(True if args.forbid_new_compiles else False if args.fixed_padded_batch_size is not None else None),
+        max_compiled=args.max_compiled,
     )
     model = _build_synthetic_model(
         num_verts=args.num_verts,
@@ -101,10 +110,13 @@ def main() -> None:
         "compiled_entries": diagnostics.compiled_entries,
         "warmup_batch_size": warmup_batch_size,
         "warmup_s": warmup_s,
+        "batch_buckets": list(diagnostics.batch_buckets),
+        "max_compiled": policy.max_compiled,
         "fixed_padded_batch_size": diagnostics.fixed_padded_batch_size,
         "forbid_new_compiles": diagnostics.forbid_new_compiles,
         "last_input_bytes": diagnostics.last_input_bytes,
         "last_output_bytes": diagnostics.last_output_bytes,
+        "policy_backend": args.backend or jax.default_backend(),
         "jax_backend": diagnostics.jax_backend,
         "device_kind": diagnostics.device_kind,
         "platform": diagnostics.platform,

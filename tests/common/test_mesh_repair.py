@@ -3,7 +3,7 @@ from pathlib import Path
 import jax.numpy as jnp
 import numpy as np
 
-from toposmpljax import export_repaired_stl, repair_topo_mesh_for_printing, repair_smpl_mesh_for_printing, repair_triangle_mesh
+from common import export_repaired_stl, repair_topo_mesh_for_printing, repair_smpl_mesh_for_printing, repair_triangle_mesh
 from smpljax.body_models import SMPLJAXModel
 from smpljax.utils import SMPLModelData
 

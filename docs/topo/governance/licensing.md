@@ -5,16 +5,18 @@ The Topo backend slice in this repository is repository-authored material licens
 Covered paths include:
 
 - `src/topojax/`
+- `benchmarks/topo/`
 - `docs/topo/`
 - `contracts/topo/`
 - `examples/topo/`
+- `tools/topo/`
 - `tests/topo/`
 
 Authority:
 
-- [../../../LICENSE](/home/phili/projects/TopoSmplJAX/LICENSE)
-- [../../../LICENSES/CODE_AND_CONTENT.md](/home/phili/projects/TopoSmplJAX/LICENSES/CODE_AND_CONTENT.md)
-- [../../../LICENSES/THIRD_PARTY_NOTICES.md](/home/phili/projects/TopoSmplJAX/LICENSES/THIRD_PARTY_NOTICES.md)
+- [../../../LICENSE](../../../LICENSE)
+- [../../../LICENSES/CODE_AND_CONTENT.md](../../../LICENSES/CODE_AND_CONTENT.md)
+- [../../../LICENSES/THIRD_PARTY_NOTICES.md](../../../LICENSES/THIRD_PARTY_NOTICES.md)
 
 Important note:
 

@@ -7,3 +7,4 @@ Theory documents explain why an approach is valid but do not define runtime obli
 Current theory notes:
 
 - `mesh_movement_modes.md`
+- `runtime_surface_methodology.md`

@@ -1,0 +1,77 @@
+{
+  "package": "common",
+  "modules": [
+    {
+      "name": "backends",
+      "path": "src/common/backends.py",
+      "capabilities": [
+        "backend registry",
+        "mode report",
+        "bridge dispatch",
+        "repair dispatch"
+      ]
+    },
+    {
+      "name": "diagnostics",
+      "path": "src/common/diagnostics.py",
+      "capabilities": [
+        "json-safe diagnostics serialization",
+        "runtime diagnostics payloads",
+        "jsonl event logging"
+      ]
+    },
+    {
+      "name": "io",
+      "path": "src/common/io.py",
+      "capabilities": [
+        "atomic text writes",
+        "atomic json writes",
+        "atomic csv writes",
+        "atomic npz writes",
+        "atomic copy"
+      ]
+    },
+    {
+      "name": "movement",
+      "path": "src/common/movement.py",
+      "capabilities": [
+        "shared transform definition",
+        "jax movement application",
+        "numpy movement application",
+        "transform packing",
+        "transform unpacking"
+      ]
+    },
+    {
+      "name": "numpy_mesh",
+      "path": "src/common/numpy_mesh.py",
+      "capabilities": [
+        "mode-tagged mesh runtime",
+        "diagnostics",
+        "save and load",
+        "artifact export",
+        "visualization payload generation",
+        "rf77 bridge payload generation"
+      ]
+    },
+    {
+      "name": "topo",
+      "path": "src/common/topo.py",
+      "capabilities": [
+        "topo workflow adapters",
+        "topo bridge dispatch",
+        "topo repair dispatch"
+      ]
+    },
+    {
+      "name": "smpl",
+      "path": "src/common/smpl.py",
+      "capabilities": [
+        "smpl runtime adapters",
+        "smpl optimization adapters",
+        "smpl bridge dispatch",
+        "smpl repair dispatch"
+      ]
+    }
+  ]
+}

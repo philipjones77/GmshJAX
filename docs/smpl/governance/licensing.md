@@ -5,6 +5,7 @@ The `smpljax` code, tests, examples, tools, contracts, and authored documentatio
 Covered repository-authored paths include:
 
 - `src/smpljax/`
+- `benchmarks/smpl/`
 - `docs/smpl/`
 - `contracts/smpl/`
 - `examples/smpl/`
@@ -18,10 +19,10 @@ Important boundary:
 
 Authority:
 
-- [../../../LICENSE](/home/phili/projects/TopoSmplJAX/LICENSE)
-- [../../../LICENSES/CODE_AND_CONTENT.md](/home/phili/projects/TopoSmplJAX/LICENSES/CODE_AND_CONTENT.md)
-- [../../../LICENSES/ASSET_BOUNDARY.md](/home/phili/projects/TopoSmplJAX/LICENSES/ASSET_BOUNDARY.md)
-- [../../../LICENSES/THIRD_PARTY_NOTICES.md](/home/phili/projects/TopoSmplJAX/LICENSES/THIRD_PARTY_NOTICES.md)
+- [../../../LICENSE](../../../LICENSE)
+- [../../../LICENSES/CODE_AND_CONTENT.md](../../../LICENSES/CODE_AND_CONTENT.md)
+- [../../../LICENSES/ASSET_BOUNDARY.md](../../../LICENSES/ASSET_BOUNDARY.md)
+- [../../../LICENSES/THIRD_PARTY_NOTICES.md](../../../LICENSES/THIRD_PARTY_NOTICES.md)
 
 Acknowledged upstream references:
 

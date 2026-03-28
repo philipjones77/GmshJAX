@@ -7,6 +7,8 @@ This project implements SMPL-family body model functionality in pure JAX with:
 - Cross-platform support for Windows and Linux.
 - Optional visualization with `viser` and `pyvista`.
 
+The core product is a canonical JAX-native runtime and parameter/output object model. Asset files and optional external tools are ingestion boundaries that should terminate in cacheable, serializable JAX-facing objects instead of opaque external handles.
+
 For full architecture and standards, see:
 - `docs/smpl/architecture.md`
 - `docs/smpl/documentation_governance.md`

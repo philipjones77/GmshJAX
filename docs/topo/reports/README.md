@@ -1,5 +1,11 @@
 # Reports
 
+Place produced reports that describe actual TopoJAX functionality, benchmark surfaces, retained example coverage, and official validation evidence here.
+
+Current reports:
+
+- `api_test_benchmark_inventory.md`
+
 Place produced reports that describe actual repository functionality, measured coverage, formal validation status, benchmark result summaries, and release-facing evidence here.
 
 Use this folder for report artifacts such as:

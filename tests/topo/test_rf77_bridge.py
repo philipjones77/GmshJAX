@@ -1,7 +1,7 @@
 import jax.numpy as jnp
 
 from topojax.ad.modes import MeshMovementMode
-from topojax.ad.workflow import initialize_mode1_domain, initialize_mode2_domain, run_mode2_restart_workflow
+from topojax.ad.workflow import initialize_mode1_domain, initialize_mode2_domain, initialize_mode5_domain, run_mode2_restart_workflow, run_mode5_workflow
 from topojax.mesh.topology import unit_square_tri_mesh
 from topojax.rf77 import (
     build_mode1_randomfields77_bridge,
@@ -101,3 +101,24 @@ def test_rf77_all_five_modes_are_hookable_and_reviewable() -> None:
         assert payload["nodes"].shape == points.shape
         assert batched["nodes"].shape == (2, points.shape[0], points.shape[1])
         assert payload["metadata"]["topology_fixed"] is False
+
+
+def test_mode5_rf77_bridge_exports_dynamic_histories(tmp_path) -> None:
+    domain = initialize_mode5_domain("square", family="tri", nx=5, ny=4, progress=False)
+    run = run_mode5_workflow(
+        domain,
+        output_dir=tmp_path,
+        prefix="rf77_mode5",
+        cycles=2,
+        optimization_steps=3,
+        surrogate_steps=3,
+        remesh_max_iters=1,
+        progress=False,
+    )
+    bridge = build_mode5_randomfields77_bridge(run)
+    report = bridge.runtime_report()
+
+    assert report["mode"] == MeshMovementMode.FULLY_DYNAMIC.value
+    assert report["builder_options"]["implementation_status"] == "implemented-relaxed-dynamic"
+    assert len(report["builder_options"]["controller_history"]) == 2
+    assert len(report["builder_options"]["transfer_history"]) == 2

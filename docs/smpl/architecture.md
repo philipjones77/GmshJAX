@@ -7,7 +7,8 @@ High-level architecture layers:
    - baseline API (`SMPLJAXModel`)
    - optimized API (`OptimizedSMPLJAX`) with policy-controlled caching.
 4. Optional visualization integration (`viser`).
-5. Tests, parity harness, and benchmarks.
+5. Shared adapter exposure through `common.smpl`.
+6. Tests, parity harness, benchmarks, and example notebooks.
 
 Repository structure authority is defined in `docs/smpl/documentation_governance.md`.
 For standards and platform policy, see `docs/smpl/standards.md` and `docs/smpl/jax_standards.md`.

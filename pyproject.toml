@@ -29,6 +29,9 @@ viz = [
   "trimesh>=4.0",
   "viser>=0.2.0",
 ]
+gmsh = [
+  "gmsh>=4.11",
+]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -42,6 +45,10 @@ smpljax = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+  "benchmark: benchmark harness tests controlled by --run-benchmarks",
+  "parity: parity and cross-reference validation tests",
+]
 
 [tool.ruff]
 line-length = 120

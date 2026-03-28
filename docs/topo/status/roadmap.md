@@ -15,11 +15,11 @@ Date: 2026-03-15
 - keep overview and milestone notes under the `docs/topo/` subtree
 - extend `contracts/topo/` only when additional surfaces are intentionally treated as stable
 
-## Mode 5 Planning
+## Mode 5 Dynamic Work
 
-- define a prototype implementation plan for `fully-dynamic-remeshing`
-- stage the work through transfer, surrogate expansion, unified control, and relaxed dynamic prototypes
-- keep the mode-5 plan explicit about non-goals and approximation strategy
+- keep refining the relaxed `fully-dynamic-remeshing` implementation for triangle and tetra workflows
+- strengthen transfer quality, controller behavior, and runtime coverage beyond the first released prototype
+- keep the mode-5 documents explicit about non-goals and approximation strategy
 
 See `mode5_roadmap.md` for the concrete milestone plan and code targets.
 

@@ -25,6 +25,21 @@ This documentation tree lives under `docs/smpl/` within the combined repository.
 - implementation notes, workflows, and benchmark docs belong in `docs/smpl/implementation/`
 - current-state summaries and roadmaps belong in `docs/smpl/status/`
 
-All docs in this folder apply to `Version 1.0.0` unless otherwise noted.
-
 Licensing for this subtree is described in `docs/smpl/governance/licensing.md`.
+
+Current authored coverage includes:
+
+- runtime/API implementation notes
+- cache and padding policy notes
+- object and spec docs for runtime surfaces
+- status and inventory docs for tests, benchmarks, and examples
+- notation and theory docs for runtime and mode vocabulary
+
+Useful entry points:
+
+- `implementation/api_runtime_implementation.md`
+- `implementation/cache_padding_policy_implementation.md`
+- `implementation/testing_benchmarks_examples_implementation.md`
+- `practical/api_usage.md`
+- `reports/api_test_benchmark_inventory.md`
+- `status/api_test_benchmark_status.md`

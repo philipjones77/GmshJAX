@@ -6,6 +6,8 @@ from typing import NamedTuple
 
 import numpy as np
 
+from common.movement import MeshMovementTransform as NumpyDeformationParams
+from common.movement import apply_mesh_movement_numpy as apply_deformation
 from topojax.runtime import numpy_float_dtype
 
 _C_TRI = 2.0 / np.sqrt(3.0)
@@ -18,13 +20,6 @@ class NumpyMeshTopology(NamedTuple):
     element_ids: np.ndarray
     element_entity_tags: np.ndarray
     n_nodes: int
-
-
-class NumpyDeformationParams(NamedTuple):
-    translation: np.ndarray
-    scale: np.ndarray
-    shear: np.ndarray
-    bend: np.ndarray
 
 
 def unit_square_points(nx: int, ny: int, dtype=None) -> np.ndarray:
@@ -183,20 +178,6 @@ def unit_cube_tet_mesh(nx: int, ny: int, nz: int, dtype=None) -> tuple[NumpyMesh
         n_nodes=n_nodes,
     )
     return topo, points
-
-
-def apply_deformation(points: np.ndarray, params: NumpyDeformationParams) -> np.ndarray:
-    x = points[:, 0]
-    y = points[:, 1]
-    sx = params.scale[0] * x
-    sy = params.scale[1] * y
-    shx = params.shear[0] * y
-    shy = params.shear[1] * x
-    bx = params.bend[0] * np.sin(2.0 * np.pi * y)
-    by = params.bend[1] * np.sin(2.0 * np.pi * x)
-    out_x = sx + shx + bx + params.translation[0]
-    out_y = sy + shy + by + params.translation[1]
-    return np.stack([out_x, out_y], axis=-1)
 
 
 def triangle_signed_areas(points: np.ndarray, elements: np.ndarray) -> np.ndarray:

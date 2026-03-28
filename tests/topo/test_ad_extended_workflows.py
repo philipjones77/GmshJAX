@@ -2,10 +2,31 @@ import jax
 import jax.numpy as jnp
 
 from topojax.ad.restart import optimize_remesh_restart_quad, optimize_remesh_restart_tet, quad_topology_from_elements, tet_topology_from_elements
-from topojax.ad.straight_through import straight_through_quad_connectivity_energy, straight_through_quad_diagonal_weights
-from topojax.ad.surrogate import soft_quad_connectivity_energy, soft_quad_diagonal_weights
+from topojax.ad.straight_through import (
+    optimize_straight_through_tet_connectivity,
+    optimize_straight_through_triangle_connectivity,
+    optimize_straight_through_quad_connectivity,
+    straight_through_tet_connectivity_energy,
+    straight_through_tet_split_weights,
+    straight_through_triangle_connectivity_energy,
+    straight_through_triangle_flip_weights,
+    straight_through_quad_connectivity_energy,
+    straight_through_quad_diagonal_weights,
+)
+from topojax.ad.surrogate import (
+    optimize_soft_tet_connectivity,
+    optimize_soft_triangle_connectivity,
+    optimize_soft_quad_connectivity,
+    soft_tet_connectivity_energy,
+    soft_tet_split_weights,
+    soft_triangle_connectivity_energy,
+    triangle_flip_candidate_patches,
+    soft_triangle_flip_weights,
+    soft_quad_connectivity_energy,
+    soft_quad_diagonal_weights,
+)
 from topojax.mesh.operators import quad_mesh_quality_energy, tet_mesh_quality_energy
-from topojax.mesh.topology import unit_cube_tet_mesh, unit_square_quad_mesh
+from topojax.mesh.topology import unit_cube_tet_mesh, unit_square_quad_mesh, unit_square_tri_mesh
 
 
 def test_quad_fixed_topology_energy_and_restart_workflow() -> None:
@@ -79,6 +100,37 @@ def test_soft_quad_connectivity_surrogate_is_differentiable() -> None:
     assert jnp.allclose(jnp.sum(weights, axis=1), 1.0, atol=1.0e-6)
 
 
+def test_soft_triangle_connectivity_surrogate_is_differentiable() -> None:
+    topo, points = unit_square_tri_mesh(6, 5)
+    patches = triangle_flip_candidate_patches(topo.elements)
+    logits = jnp.zeros((patches.shape[0],), dtype=points.dtype)
+
+    def objective(theta: jnp.ndarray) -> jnp.ndarray:
+        return soft_triangle_connectivity_energy(points, topo.elements, theta, temperature=0.3)
+
+    grad = jax.grad(objective)(logits)
+    weights = soft_triangle_flip_weights(logits, temperature=0.3)
+    assert grad.shape == logits.shape
+    assert jnp.all(jnp.isfinite(grad))
+    assert weights.shape == (logits.shape[0], 2)
+    assert jnp.allclose(jnp.sum(weights, axis=1), 1.0, atol=1.0e-6)
+
+
+def test_soft_tet_connectivity_surrogate_is_differentiable() -> None:
+    topo, points = unit_cube_tet_mesh(3, 3, 3)
+    logits = jnp.zeros((topo.elements.shape[0],), dtype=points.dtype)
+
+    def objective(theta: jnp.ndarray) -> jnp.ndarray:
+        return soft_tet_connectivity_energy(points, topo.elements, theta, temperature=0.25)
+
+    grad = jax.grad(objective)(logits)
+    weights = soft_tet_split_weights(logits, temperature=0.25)
+    assert grad.shape == logits.shape
+    assert jnp.all(jnp.isfinite(grad))
+    assert weights.shape == (topo.elements.shape[0], 2)
+    assert jnp.allclose(jnp.sum(weights, axis=1), 1.0, atol=1.0e-6)
+
+
 def test_straight_through_quad_connectivity_surrogate_has_gradients() -> None:
     topo, points = unit_square_quad_mesh(6, 5)
     logits = jnp.linspace(-0.5, 0.5, topo.elements.shape[0], dtype=points.dtype)
@@ -93,3 +145,96 @@ def test_straight_through_quad_connectivity_surrogate_has_gradients() -> None:
     assert weights.shape == (topo.elements.shape[0], 2)
     assert jnp.allclose(weights, jnp.round(weights), atol=1.0e-6)
     assert jnp.allclose(jnp.sum(weights, axis=1), 1.0, atol=1.0e-6)
+
+
+def test_straight_through_triangle_connectivity_surrogate_has_gradients() -> None:
+    topo, points = unit_square_tri_mesh(6, 5)
+    patches = triangle_flip_candidate_patches(topo.elements)
+    logits = jnp.linspace(-0.5, 0.5, patches.shape[0], dtype=points.dtype)
+
+    def objective(theta: jnp.ndarray) -> jnp.ndarray:
+        return straight_through_triangle_connectivity_energy(points, topo.elements, theta, temperature=0.25)
+
+    grad = jax.grad(objective)(logits)
+    weights = straight_through_triangle_flip_weights(logits, temperature=0.25)
+    assert grad.shape == logits.shape
+    assert jnp.all(jnp.isfinite(grad))
+    assert weights.shape == (logits.shape[0], 2)
+    assert jnp.allclose(weights, jnp.round(weights), atol=1.0e-6)
+    assert jnp.allclose(jnp.sum(weights, axis=1), 1.0, atol=1.0e-6)
+
+
+def test_straight_through_tet_connectivity_surrogate_has_gradients() -> None:
+    topo, points = unit_cube_tet_mesh(3, 3, 3)
+    logits = jnp.linspace(-0.5, 0.5, topo.elements.shape[0], dtype=points.dtype)
+
+    def objective(theta: jnp.ndarray) -> jnp.ndarray:
+        return straight_through_tet_connectivity_energy(points, topo.elements, theta, temperature=0.25)
+
+    grad = jax.grad(objective)(logits)
+    weights = straight_through_tet_split_weights(logits, temperature=0.25)
+    assert grad.shape == logits.shape
+    assert jnp.all(jnp.isfinite(grad))
+    assert weights.shape == (topo.elements.shape[0], 2)
+    assert jnp.allclose(weights, jnp.round(weights), atol=1.0e-6)
+    assert jnp.allclose(jnp.sum(weights, axis=1), 1.0, atol=1.0e-6)
+
+
+def test_mode3_surrogate_optimization_reduces_energy() -> None:
+    topo, points = unit_square_quad_mesh(6, 5)
+    result = optimize_soft_quad_connectivity(points, topo.elements, steps=12, step_size=0.15, temperature=0.3)
+    assert result.objective_history.shape == (12,)
+    assert result.grad_norm_history.shape == (12,)
+    assert float(result.objective_history[-1]) <= float(result.objective_history[0]) + 1.0e-8
+    assert result.weights.shape == (topo.elements.shape[0], 2)
+    assert jnp.allclose(jnp.sum(result.weights, axis=1), 1.0, atol=1.0e-6)
+
+
+def test_mode3_triangle_surrogate_optimization_reduces_energy() -> None:
+    topo, points = unit_square_tri_mesh(6, 5)
+    result = optimize_soft_triangle_connectivity(points, topo.elements, steps=12, step_size=0.15, temperature=0.3)
+    assert result.objective_history.shape == (12,)
+    assert result.grad_norm_history.shape == (12,)
+    assert float(result.objective_history[-1]) <= float(result.objective_history[0]) + 1.0e-8
+    assert result.weights.shape[1] == 2
+    assert result.topology_kind == "triangle"
+
+
+def test_mode3_tet_surrogate_optimization_reduces_energy() -> None:
+    topo, points = unit_cube_tet_mesh(3, 3, 3)
+    result = optimize_soft_tet_connectivity(points, topo.elements, steps=10, step_size=0.12, temperature=0.25)
+    assert result.objective_history.shape == (10,)
+    assert result.grad_norm_history.shape == (10,)
+    assert float(result.objective_history[-1]) <= float(result.objective_history[0]) + 1.0e-8
+    assert result.weights.shape == (topo.elements.shape[0], 2)
+    assert result.topology_kind == "tetra"
+
+
+def test_mode4_straight_through_optimization_reduces_energy() -> None:
+    topo, points = unit_square_quad_mesh(6, 5)
+    result = optimize_straight_through_quad_connectivity(points, topo.elements, steps=12, step_size=0.15, temperature=0.25)
+    assert result.objective_history.shape == (12,)
+    assert result.grad_norm_history.shape == (12,)
+    assert float(result.objective_history[-1]) <= float(result.objective_history[0]) + 1.0e-8
+    assert result.hard_weights.shape == (topo.elements.shape[0], 2)
+    assert jnp.allclose(result.hard_weights, jnp.round(result.hard_weights), atol=1.0e-6)
+
+
+def test_mode4_triangle_straight_through_optimization_reduces_energy() -> None:
+    topo, points = unit_square_tri_mesh(6, 5)
+    result = optimize_straight_through_triangle_connectivity(points, topo.elements, steps=12, step_size=0.15, temperature=0.25)
+    assert result.objective_history.shape == (12,)
+    assert result.grad_norm_history.shape == (12,)
+    assert float(result.objective_history[-1]) <= float(result.objective_history[0]) + 1.0e-8
+    assert jnp.allclose(result.hard_weights, jnp.round(result.hard_weights), atol=1.0e-6)
+    assert result.topology_kind == "triangle"
+
+
+def test_mode4_tet_straight_through_optimization_reduces_energy() -> None:
+    topo, points = unit_cube_tet_mesh(3, 3, 3)
+    result = optimize_straight_through_tet_connectivity(points, topo.elements, steps=10, step_size=0.12, temperature=0.25)
+    assert result.objective_history.shape == (10,)
+    assert result.grad_norm_history.shape == (10,)
+    assert float(result.objective_history[-1]) <= float(result.objective_history[0]) + 1.0e-8
+    assert jnp.allclose(result.hard_weights, jnp.round(result.hard_weights), atol=1.0e-6)
+    assert result.topology_kind == "tetra"

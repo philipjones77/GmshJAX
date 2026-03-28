@@ -10,6 +10,7 @@
 - Compile cache: bounded LRU (`max_compiled`).
 - IO cache: hard-capped at 2 models in memory.
 - Optional fixed padded batch capacity can reserve a single compile shape ahead of time.
+- Factory defaults should be backend-aware: tighter default compile surfaces on CPU, wider bucket ladders on GPU/TPU.
 
 ## No-recompile Contract
 - Value-only changes (e.g., `transl`) with fixed shapes should reuse compiled functions.
@@ -19,6 +20,8 @@
 - Diagnostics should expose compile-key evictions when cache pressure removes older compiled variants.
 - `fixed_padded_batch_size` allows smaller later batches to reuse the same padded compile shape.
 - `forbid_new_compiles=True` converts unexpected new compile keys into runtime errors.
+- `batch_size_hint` may trim or extend the bucket ladder when the optimized runtime is created through the factory API.
+- Requests larger than the largest configured bucket must compile at the exact request size rather than silently truncating.
 
 ## AD Contract
 - Forward path supports JAX autodiff in optimized runtime.

@@ -18,6 +18,29 @@ from .utils import SMPLModelData, as_jax_array
 Array = jnp.ndarray
 
 
+def _normalized_backend_name(backend: str | None) -> str:
+    if backend is None:
+        return str(jax.default_backend()).lower()
+    normalized = str(backend).lower()
+    if normalized in {"cuda", "rocm"}:
+        return "gpu"
+    return normalized
+
+
+def _next_bucket(batch_buckets: tuple[int, ...], batch_size: int) -> int:
+    size = max(1, int(batch_size))
+    for bucket in batch_buckets:
+        if size <= int(bucket):
+            return int(bucket)
+    return size
+
+
+def _recommended_batch_buckets(backend: str) -> tuple[int, ...]:
+    if backend in {"gpu", "tpu"}:
+        return (1, 8, 16, 32, 64, 128)
+    return (1, 4, 8, 16, 32, 64)
+
+
 @dataclass(frozen=True)
 class CachePolicy:
     dtype: str | jnp.dtype = jnp.float32
@@ -26,6 +49,39 @@ class CachePolicy:
     enable_batch_bucketing: bool = True
     fixed_padded_batch_size: int | None = None
     forbid_new_compiles: bool = False
+
+    @classmethod
+    def recommended(
+        cls,
+        *,
+        dtype: str | jnp.dtype = jnp.float32,
+        backend: str | None = None,
+        batch_size_hint: int | None = None,
+        prefer_fixed_padding: bool = False,
+        fixed_padded_batch_size: int | None = None,
+        forbid_new_compiles: bool | None = None,
+        max_compiled: int | None = None,
+    ) -> "CachePolicy":
+        normalized_backend = _normalized_backend_name(backend)
+        batch_buckets = _recommended_batch_buckets(normalized_backend)
+        if batch_size_hint is not None:
+            recommended_bucket = _next_bucket(batch_buckets, batch_size_hint)
+            batch_buckets = tuple(bucket for bucket in batch_buckets if int(bucket) <= recommended_bucket)
+            if recommended_bucket not in batch_buckets:
+                batch_buckets = (*batch_buckets, recommended_bucket)
+        resolved_fixed = fixed_padded_batch_size
+        if resolved_fixed is None and prefer_fixed_padding and batch_size_hint is not None:
+            resolved_fixed = _next_bucket(batch_buckets, batch_size_hint)
+        resolved_forbid = bool(forbid_new_compiles) if forbid_new_compiles is not None else bool(prefer_fixed_padding and resolved_fixed is not None)
+        resolved_max_compiled = int(max_compiled) if max_compiled is not None else (6 if normalized_backend in {"gpu", "tpu"} else 4)
+        return cls(
+            dtype=dtype,
+            max_compiled=resolved_max_compiled,
+            batch_buckets=tuple(int(bucket) for bucket in batch_buckets),
+            enable_batch_bucketing=True,
+            fixed_padded_batch_size=None if resolved_fixed is None else int(resolved_fixed),
+            forbid_new_compiles=resolved_forbid,
+        )
 
 
 @dataclass(frozen=True)
@@ -106,6 +162,14 @@ def _resolve_dtype(dtype: str | jnp.dtype) -> jnp.dtype:
 def _array_nbytes(x: object | None) -> int:
     if x is None:
         return 0
+    shape = getattr(x, "shape", None)
+    dtype = getattr(x, "dtype", None)
+    if shape is not None and dtype is not None:
+        try:
+            size = int(np.prod([int(dim) for dim in shape], dtype=np.int64))
+            return size * int(np.dtype(dtype).itemsize)
+        except Exception:
+            pass
     try:
         return int(np.asarray(x).nbytes)
     except Exception:
@@ -179,6 +243,11 @@ class OptimizedSMPLJAX:
         self._warmup_keys: set[tuple[bool, bool, int]] = set()
         self._expected_warmup_keys: set[tuple[bool, bool, int]] = set()
         self._evicted_keys: list[tuple[bool, bool, int]] = []
+        self._num_betas = int(self.data.num_betas or np.asarray(self.data.shapedirs).shape[-1])
+        self._num_expression_coeffs = int(self.data.num_expression_coeffs or 0)
+        self._num_body_joints = int(self.data.num_body_joints or max(self._num_joints() - 1, 0))
+        self._num_hand_joints = int(self.data.num_hand_joints or 0)
+        self._input_template_cache: dict[tuple[bool, int], ForwardInputs] = {}
 
     def export_template_mesh(self) -> dict[str, object]:
         from .mesh_export import export_template_mesh
@@ -241,7 +310,35 @@ class OptimizedSMPLJAX:
         for b in self.policy.batch_buckets:
             if batch_size <= b:
                 return b
-        return int(self.policy.batch_buckets[-1])
+        return int(batch_size)
+
+    def _zero_pose(self, *, padded_batch_size: int, joints: int, pose2rot: bool) -> Array:
+        if pose2rot:
+            return jnp.zeros((padded_batch_size, joints, 3), dtype=self.dtype)
+        return jnp.broadcast_to(jnp.eye(3, dtype=self.dtype), (padded_batch_size, joints, 3, 3))
+
+    def _input_template(self, *, padded_batch_size: int, pose2rot: bool) -> ForwardInputs:
+        key = (pose2rot, int(padded_batch_size))
+        cached = self._input_template_cache.get(key)
+        if cached is not None:
+            return cached
+        padded = int(padded_batch_size)
+        template = ForwardInputs(
+            betas=jnp.zeros((padded, self._num_betas), dtype=self.dtype),
+            body_pose=self._zero_pose(padded_batch_size=padded, joints=self._num_body_joints, pose2rot=pose2rot),
+            global_orient=self._zero_pose(padded_batch_size=padded, joints=1, pose2rot=pose2rot),
+            transl=jnp.zeros((padded, 3), dtype=self.dtype),
+            expression=jnp.zeros((padded, self._num_expression_coeffs), dtype=self.dtype),
+            jaw_pose=self._zero_pose(padded_batch_size=padded, joints=1, pose2rot=pose2rot),
+            leye_pose=self._zero_pose(padded_batch_size=padded, joints=1, pose2rot=pose2rot),
+            reye_pose=self._zero_pose(padded_batch_size=padded, joints=1, pose2rot=pose2rot),
+            left_hand_pose=self._zero_pose(padded_batch_size=padded, joints=self._num_hand_joints, pose2rot=pose2rot),
+            right_hand_pose=self._zero_pose(padded_batch_size=padded, joints=self._num_hand_joints, pose2rot=pose2rot),
+            actual_batch_size=padded,
+            padded_batch_size=padded,
+        )
+        self._input_template_cache[key] = template
+        return template
 
     def prepare_inputs(
         self,
@@ -259,44 +356,34 @@ class OptimizedSMPLJAX:
         pose2rot: bool = True,
     ) -> ForwardInputs:
         padded = self._bucket(batch_size)
-        num_betas = int(self.data.num_betas or np.asarray(self.data.shapedirs).shape[-1])
-        num_expr = int(self.data.num_expression_coeffs or 0)
-        num_body = int(self.data.num_body_joints or max(self._num_joints() - 1, 0))
-        num_hand = int(self.data.num_hand_joints or 0)
+        template = self._input_template(padded_batch_size=padded, pose2rot=pose2rot)
 
-        def _zeros_pose(joints: int) -> Array:
-            if pose2rot:
-                return jnp.zeros((padded, joints, 3), dtype=self.dtype)
-            return jnp.broadcast_to(jnp.eye(3, dtype=self.dtype), (padded, joints, 3, 3))
-
-        def _pad_first_dim(x: Array | None, target_shape: tuple[int, ...]) -> Array:
+        def _pad_first_dim(x: Array | None, template_value: Array) -> Array:
             if x is None:
-                return jnp.zeros(target_shape, dtype=self.dtype)
-            x = as_jax_array(x, dtype=self.dtype)
-            if x.shape[0] == padded:
-                return x
-            if x.shape[0] > padded:
-                return x[:padded]
-            pad_width = [(0, padded - x.shape[0])] + [(0, 0)] * (x.ndim - 1)
-            return jnp.pad(x, pad_width)
+                return template_value
+            arr = as_jax_array(x, dtype=self.dtype)
+            if arr.ndim != template_value.ndim or tuple(int(v) for v in arr.shape[1:]) != tuple(int(v) for v in template_value.shape[1:]):
+                raise ValueError(
+                    f"Expected input trailing shape {template_value.shape[1:]} for padded shape {template_value.shape}, got {arr.shape}"
+                )
+            current = int(arr.shape[0])
+            if current == padded:
+                return arr
+            if current > padded:
+                return arr[:padded]
+            return template_value.at[:current].set(arr)
 
         return ForwardInputs(
-            betas=_pad_first_dim(betas, (padded, num_betas)),
-            body_pose=_pad_first_dim(body_pose, _zeros_pose(num_body).shape) if body_pose is not None else _zeros_pose(num_body),
-            global_orient=_pad_first_dim(global_orient, _zeros_pose(1).shape)
-            if global_orient is not None
-            else _zeros_pose(1),
-            transl=_pad_first_dim(transl, (padded, 3)),
-            expression=_pad_first_dim(expression, (padded, num_expr)),
-            jaw_pose=_pad_first_dim(jaw_pose, _zeros_pose(1).shape) if jaw_pose is not None else _zeros_pose(1),
-            leye_pose=_pad_first_dim(leye_pose, _zeros_pose(1).shape) if leye_pose is not None else _zeros_pose(1),
-            reye_pose=_pad_first_dim(reye_pose, _zeros_pose(1).shape) if reye_pose is not None else _zeros_pose(1),
-            left_hand_pose=_pad_first_dim(left_hand_pose, _zeros_pose(num_hand).shape)
-            if left_hand_pose is not None
-            else _zeros_pose(num_hand),
-            right_hand_pose=_pad_first_dim(right_hand_pose, _zeros_pose(num_hand).shape)
-            if right_hand_pose is not None
-            else _zeros_pose(num_hand),
+            betas=_pad_first_dim(betas, template.betas),
+            body_pose=_pad_first_dim(body_pose, template.body_pose),
+            global_orient=_pad_first_dim(global_orient, template.global_orient),
+            transl=_pad_first_dim(transl, template.transl),
+            expression=_pad_first_dim(expression, template.expression),
+            jaw_pose=_pad_first_dim(jaw_pose, template.jaw_pose),
+            leye_pose=_pad_first_dim(leye_pose, template.leye_pose),
+            reye_pose=_pad_first_dim(reye_pose, template.reye_pose),
+            left_hand_pose=_pad_first_dim(left_hand_pose, template.left_hand_pose),
+            right_hand_pose=_pad_first_dim(right_hand_pose, template.right_hand_pose),
             actual_batch_size=batch_size,
             padded_batch_size=padded,
         )
@@ -655,3 +742,4 @@ class OptimizedSMPLJAX:
         self._warmup_keys.clear()
         self._expected_warmup_keys.clear()
         self._evicted_keys.clear()
+        self._input_template_cache.clear()

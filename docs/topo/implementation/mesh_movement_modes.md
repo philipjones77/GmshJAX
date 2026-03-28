@@ -51,7 +51,13 @@ Primary code paths:
 
 - `src/topojax/ad/surrogate.py`
 
-Current implementation scope is a fixed quad candidate graph with differentiable weights over diagonal choices.
+Current implementation scope now includes:
+
+- 2D triangle edge-flip surrogate candidates
+- 2D quad diagonal-choice surrogate candidates
+- 3D tetra keep-vs-split surrogate candidates
+
+The practical runtime surface is exposed through `optimize_soft_connectivity`, `run_mode3_workflow`, and the corresponding artifact export and visualization payload helpers.
 
 ## Mode 4: Straight-Through Connectivity
 
@@ -59,12 +65,25 @@ Primary code paths:
 
 - `src/topojax/ad/straight_through.py`
 
-Current implementation scope is also quad diagonal choice, but with hard forward decisions and surrogate backward gradients.
+Current implementation scope now includes:
+
+- 2D triangle edge-flip straight-through candidates
+- 2D quad diagonal-choice straight-through candidates
+- 3D tetra keep-vs-split straight-through candidates
+
+This mode keeps hard forward choices with surrogate backward gradients and is exposed through `optimize_straight_through_connectivity` and `run_mode4_workflow`.
 
 ## Mode 5: Fully Dynamic Remeshing
 
-Current status: aspirational.
+Current status: implemented relaxed prototype for 2D triangle and 3D tetra workflows.
 
-There is no production implementation yet. The intended target is a workflow where complete remeshing is allowed while geometry is moving, without reducing the system to phase-local fixed-topology solves. For now, TopoJAX should treat this mode as a planning target rather than a supported runtime guarantee.
+The current implementation is a practical hybrid dynamic loop rather than exact reverse-mode through arbitrary remeshing. It combines:
+
+- fixed-topology optimization inside each phase
+- an in-loop surrogate phase using mode-3 or mode-4 style connectivity variables
+- explicit controller decisions for remesh triggers
+- explicit node-field and element-field transfer across remesh events
+
+The practical runtime surface is exposed through `optimize_dynamic_topology`, `run_mode5_workflow`, and `export_mode5_artifacts`.
 
 The concrete prototype plan, milestones, code targets, non-goals, and approximation strategy are tracked in `docs/topo/status/mode5_roadmap.md`.

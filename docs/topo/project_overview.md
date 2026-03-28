@@ -2,10 +2,13 @@
 
 TopoJAX is a JAX-first mesh creation and mesh adaptation workspace that keeps topology static while allowing coordinates, objectives, and deformation parameters to remain differentiable.
 
+The core product is a canonical JAX-native mesh object model. External systems such as Gmsh are ingestion or inspection tools whose outputs are converted into stable array-first runtime objects that can be manipulated, differentiated where valid, exported, snapshotted, and cached.
+
 ## Goals
 
 - provide AD-friendly mesh generation and adaptation building blocks in JAX
 - preserve Gmsh-inspired topology and entity concepts in an array-first runtime
+- convert external mesh generators into canonical JAX objects instead of keeping external-tool handles at the center of workflows
 - support both NumPy reference execution and JAX-compiled/autodiff execution
 - keep exported meshes, diagnostics, and adaptive workflows reproducible through stable entry points
 

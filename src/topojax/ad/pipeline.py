@@ -5,23 +5,24 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 
+from common.movement import (
+    default_mesh_movement_transform,
+    pack_mesh_movement_transform,
+    unpack_mesh_movement_vector,
+)
 from topojax.mesh.manifold import DeformationParams, apply_deformation
 from topojax.mesh.operators import mesh_quality_energy
 from topojax.mesh.topology import MeshTopology
 from topojax.model import MeshModel
+from topojax.runtime import jax_float_dtype
 
 
 def _pack_params(params: DeformationParams) -> jnp.ndarray:
-    return jnp.concatenate([params.translation, params.scale, params.shear, params.bend], axis=0)
+    return jnp.asarray(pack_mesh_movement_transform(params))
 
 
 def _unpack_params(vec: jnp.ndarray) -> DeformationParams:
-    return DeformationParams(
-        translation=vec[0:2],
-        scale=vec[2:4],
-        shear=vec[4:6],
-        bend=vec[6:8],
-    )
+    return DeformationParams(*unpack_mesh_movement_vector(vec, point_dim=2, backend="jax"))
 
 
 def build_parametric_quality_value_and_grad(topology: MeshTopology, reference_points: jnp.ndarray):
@@ -42,12 +43,7 @@ def build_model_parametric_quality_value_and_grad(model: MeshModel):
 
 def default_params() -> DeformationParams:
     """Reasonable initialization for smooth deformations."""
-    return DeformationParams(
-        translation=jnp.array([0.0, 0.0]),
-        scale=jnp.array([1.0, 1.0]),
-        shear=jnp.array([0.0, 0.0]),
-        bend=jnp.array([0.0, 0.0]),
-    )
+    return DeformationParams(*default_mesh_movement_transform(point_dim=2, dtype=jax_float_dtype(), backend="jax"))
 
 
 def default_param_vector() -> jnp.ndarray:

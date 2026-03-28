@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import importlib
+from pathlib import Path
+import subprocess
+import tempfile
 from typing import Callable, NamedTuple
+import uuid
 
 import jax.numpy as jnp
 import numpy as np
 
 from topojax.io.exports import GmshElementBlock
+from topojax.io.imports import load_gmsh_msh
 from topojax.mesh.generators import unit_cube_points
 from topojax.mesh.topology import MeshTopology, mesh_topology_from_points_and_elements, structured_tetrahedra, tet_edges, triangle_edges
 from topojax.mesh.triangulation import delaunay_triangles_2d
@@ -362,6 +368,187 @@ def _polygon_boundary_metadata(loop_ranges: list[tuple[int, int]], remap: np.nda
     return DomainMeshMetadata(boundary_element_blocks=tuple(blocks), physical_names=physical_names)
 
 
+def _gmsh_point_definitions(loop: np.ndarray, start_id: int) -> tuple[list[str], list[int], int]:
+    lines: list[str] = []
+    point_ids: list[int] = []
+    next_id = start_id
+    for x, y in loop.tolist():
+        lines.append(f"Point({next_id}) = {{{x:.17g}, {y:.17g}, 0.0}};")
+        point_ids.append(next_id)
+        next_id += 1
+    return lines, point_ids, next_id
+
+
+def _polygon_domain_gmsh_geo(
+    outer: np.ndarray,
+    holes: list[np.ndarray],
+    *,
+    target_edge_size: float | None,
+    recombine: bool,
+) -> str:
+    point_lines: list[str] = []
+    curve_lines: list[str] = []
+    loop_specs: list[tuple[str, list[int]]] = [("outer_boundary", outer)]
+    loop_specs.extend((f"hole_{i + 1}_boundary", loop) for i, loop in enumerate(holes))
+    next_point = 1
+    next_line = 1
+    curve_loop_ids: list[int] = []
+    physical_lines: list[str] = []
+    geometry_lines = ['SetFactory("Built-in");', "Mesh.MshFileVersion = 2.2;"]
+    if target_edge_size is not None:
+        geometry_lines.append(f"Mesh.CharacteristicLengthMin = {float(target_edge_size):.17g};")
+        geometry_lines.append(f"Mesh.CharacteristicLengthMax = {float(target_edge_size):.17g};")
+    if recombine:
+        geometry_lines.append("Mesh.RecombineAll = 1;")
+
+    for loop_index, (name, loop) in enumerate(loop_specs):
+        local_point_lines, point_ids, next_point = _gmsh_point_definitions(loop, next_point)
+        point_lines.extend(local_point_lines)
+        line_ids: list[int] = []
+        for i in range(len(point_ids)):
+            a = point_ids[i]
+            b = point_ids[(i + 1) % len(point_ids)]
+            curve_lines.append(f"Line({next_line}) = {{{a}, {b}}};")
+            line_ids.append(next_line)
+            next_line += 1
+        curve_loop_id = 100 + loop_index
+        curve_lines.append(f"Curve Loop({curve_loop_id}) = {{{', '.join(str(i) for i in line_ids)}}};")
+        curve_loop_ids.append(curve_loop_id)
+        physical_lines.append(f'Physical Curve("{name}") = {{{", ".join(str(i) for i in line_ids)}}};')
+
+    geometry_lines.extend(point_lines)
+    geometry_lines.extend(curve_lines)
+    geometry_lines.append(f"Plane Surface(1) = {{{', '.join(str(i) for i in curve_loop_ids)}}};")
+    if recombine:
+        geometry_lines.append("Recombine Surface {1};")
+    geometry_lines.extend(physical_lines)
+    geometry_lines.append('Physical Surface("domain") = {1};')
+    return "\n".join(geometry_lines) + "\n"
+
+
+def _load_domain_from_gmsh_msh(path: Path, *, primary_element_kind: str) -> tuple[MeshTopology, jnp.ndarray, DomainMeshMetadata]:
+    imported = load_gmsh_msh(path, primary_element_kind=primary_element_kind)
+    metadata = DomainMeshMetadata(
+        boundary_element_blocks=imported.extra_element_blocks,
+        physical_names=imported.physical_names,
+    )
+    return imported.topology, imported.points, metadata
+
+
+def _load_gmsh_module():
+    return importlib.import_module("gmsh")
+
+
+def _polygon_domain_mesh_via_gmsh_bindings(
+    outer_boundary: jnp.ndarray,
+    *,
+    holes: list[jnp.ndarray] | None,
+    target_edge_size: float | None,
+    recombine: bool,
+) -> tuple[MeshTopology, jnp.ndarray, DomainMeshMetadata]:
+    gmsh = _load_gmsh_module()
+    outer = _ensure_orientation(_as_closed_loop(outer_boundary), ccw=True)
+    hole_loops = [_ensure_orientation(_as_closed_loop(loop), ccw=False) for loop in (holes or [])]
+
+    owns_session = False
+    if not bool(getattr(gmsh, "isInitialized", lambda: False)()):
+        gmsh.initialize()
+        owns_session = True
+
+    model_name = f"topojax_domain_{uuid.uuid4().hex}"
+    try:
+        gmsh.option.setNumber("General.Terminal", 0)
+        gmsh.option.setNumber("Mesh.MshFileVersion", 2.2)
+        gmsh.option.setNumber("Mesh.RecombineAll", 1 if recombine else 0)
+        gmsh.model.add(model_name)
+
+        curve_loop_ids: list[int] = []
+        physical_curve_groups: list[tuple[int, list[int], str]] = []
+        loop_specs: list[tuple[str, np.ndarray]] = [("outer_boundary", outer)]
+        loop_specs.extend((f"hole_{i + 1}_boundary", loop) for i, loop in enumerate(hole_loops))
+
+        for loop_index, (name, loop) in enumerate(loop_specs):
+            point_ids = [gmsh.model.geo.addPoint(float(x), float(y), 0.0, 0.0 if target_edge_size is None else float(target_edge_size)) for x, y in loop.tolist()]
+            line_ids = [gmsh.model.geo.addLine(point_ids[i], point_ids[(i + 1) % len(point_ids)]) for i in range(len(point_ids))]
+            curve_loop_id = gmsh.model.geo.addCurveLoop(line_ids)
+            curve_loop_ids.append(curve_loop_id)
+            physical_tag = 100 + loop_index
+            physical_curve_groups.append((physical_tag, line_ids, name))
+
+        surface_tag = gmsh.model.geo.addPlaneSurface(curve_loop_ids)
+        gmsh.model.geo.synchronize()
+        for physical_tag, line_ids, name in physical_curve_groups:
+            gmsh.model.addPhysicalGroup(1, line_ids, tag=physical_tag)
+            gmsh.model.setPhysicalName(1, physical_tag, name)
+        gmsh.model.addPhysicalGroup(2, [surface_tag], tag=1)
+        gmsh.model.setPhysicalName(2, 1, "domain")
+        gmsh.model.mesh.generate(2)
+
+        with tempfile.TemporaryDirectory(prefix="topojax_gmsh_api_") as tmpdir:
+            msh_path = Path(tmpdir) / "domain.msh"
+            gmsh.write(str(msh_path))
+            return _load_domain_from_gmsh_msh(msh_path, primary_element_kind="quad" if recombine else "triangle")
+    finally:
+        if owns_session:
+            gmsh.finalize()
+
+
+def _polygon_domain_mesh_via_gmsh_cli(
+    outer_boundary: jnp.ndarray,
+    *,
+    holes: list[jnp.ndarray] | None,
+    target_edge_size: float | None,
+    recombine: bool,
+    gmsh_executable: str,
+) -> tuple[MeshTopology, jnp.ndarray, DomainMeshMetadata]:
+    outer = _ensure_orientation(_as_closed_loop(outer_boundary), ccw=True)
+    hole_loops = [_ensure_orientation(_as_closed_loop(loop), ccw=False) for loop in (holes or [])]
+    geo_text = _polygon_domain_gmsh_geo(outer, hole_loops, target_edge_size=target_edge_size, recombine=recombine)
+    with tempfile.TemporaryDirectory(prefix="topojax_gmsh_") as tmpdir:
+        tmp_path = Path(tmpdir)
+        geo_path = tmp_path / "domain.geo"
+        msh_path = tmp_path / "domain.msh"
+        geo_path.write_text(geo_text, encoding="utf-8")
+        cmd = [
+            gmsh_executable,
+            str(geo_path),
+            "-2",
+            "-format",
+            "msh2",
+            "-o",
+            str(msh_path),
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        if proc.returncode != 0:
+            raise RuntimeError(f"Gmsh polygon meshing failed with exit code {proc.returncode}: {proc.stderr.strip()}")
+        return _load_domain_from_gmsh_msh(msh_path, primary_element_kind="quad" if recombine else "triangle")
+
+
+def _polygon_domain_mesh_via_gmsh(
+    outer_boundary: jnp.ndarray,
+    *,
+    holes: list[jnp.ndarray] | None,
+    target_edge_size: float | None,
+    recombine: bool,
+    gmsh_executable: str,
+) -> tuple[MeshTopology, jnp.ndarray, DomainMeshMetadata]:
+    try:
+        return _polygon_domain_mesh_via_gmsh_bindings(
+            outer_boundary,
+            holes=holes,
+            target_edge_size=target_edge_size,
+            recombine=recombine,
+        )
+    except ModuleNotFoundError:
+        return _polygon_domain_mesh_via_gmsh_cli(
+            outer_boundary,
+            holes=holes,
+            target_edge_size=target_edge_size,
+            recombine=recombine,
+            gmsh_executable=gmsh_executable,
+        )
+
+
 def _triangle_to_quad_points_and_elements(points: np.ndarray, elements: np.ndarray) -> tuple[np.ndarray, np.ndarray, dict[tuple[int, int], int]]:
     edge_keys = sorted(_build_edge_to_triangles(elements))
     edge_to_midpoint: dict[tuple[int, int], int] = {}
@@ -462,19 +649,32 @@ def polygon_domain_tri_mesh(
     holes: list[jnp.ndarray] | None = None,
     target_edge_size: float | None = None,
     interior_relaxation: float = 0.35,
+    backend: str = "native",
+    gmsh_executable: str = "gmsh",
 ) -> tuple[MeshTopology, jnp.ndarray]:
     """Create a fixed-topology triangle mesh for an arbitrary 2D polygon domain.
 
     The geometry stage is discrete and uses point sampling plus constrained-edge
     recovery. The resulting topology is suitable for Mode 1 fixed-topology AD.
     """
-    topology, points, _, _, _ = _build_polygon_domain_tri_mesh(
-        outer_boundary,
-        holes=holes,
-        target_edge_size=target_edge_size,
-        interior_relaxation=interior_relaxation,
-    )
-    return topology, points
+    if backend == "native":
+        topology, points, _, _, _ = _build_polygon_domain_tri_mesh(
+            outer_boundary,
+            holes=holes,
+            target_edge_size=target_edge_size,
+            interior_relaxation=interior_relaxation,
+        )
+        return topology, points
+    if backend == "gmsh":
+        topology, points, _ = _polygon_domain_mesh_via_gmsh(
+            outer_boundary,
+            holes=holes,
+            target_edge_size=target_edge_size,
+            recombine=False,
+            gmsh_executable=gmsh_executable,
+        )
+        return topology, points
+    raise ValueError("backend must be 'native' or 'gmsh'")
 
 
 def polygon_domain_tri_mesh_tagged(
@@ -483,14 +683,26 @@ def polygon_domain_tri_mesh_tagged(
     holes: list[jnp.ndarray] | None = None,
     target_edge_size: float | None = None,
     interior_relaxation: float = 0.35,
+    backend: str = "native",
+    gmsh_executable: str = "gmsh",
 ) -> tuple[MeshTopology, jnp.ndarray, DomainMeshMetadata]:
-    topology, points, _, loop_ranges, remap = _build_polygon_domain_tri_mesh(
-        outer_boundary,
-        holes=holes,
-        target_edge_size=target_edge_size,
-        interior_relaxation=interior_relaxation,
-    )
-    return topology, points, _polygon_boundary_metadata(loop_ranges, remap)
+    if backend == "native":
+        topology, points, _, loop_ranges, remap = _build_polygon_domain_tri_mesh(
+            outer_boundary,
+            holes=holes,
+            target_edge_size=target_edge_size,
+            interior_relaxation=interior_relaxation,
+        )
+        return topology, points, _polygon_boundary_metadata(loop_ranges, remap)
+    if backend == "gmsh":
+        return _polygon_domain_mesh_via_gmsh(
+            outer_boundary,
+            holes=holes,
+            target_edge_size=target_edge_size,
+            recombine=False,
+            gmsh_executable=gmsh_executable,
+        )
+    raise ValueError("backend must be 'native' or 'gmsh'")
 
 
 def polygon_domain_quad_mesh(
@@ -499,18 +711,31 @@ def polygon_domain_quad_mesh(
     holes: list[jnp.ndarray] | None = None,
     target_edge_size: float | None = None,
     interior_relaxation: float = 0.35,
+    backend: str = "native",
+    gmsh_executable: str = "gmsh",
 ) -> tuple[MeshTopology, jnp.ndarray]:
     """Create a conforming quad mesh for a polygonal domain via tri-to-quad subdivision."""
-    tri_topology, tri_points, _, _, _ = _build_polygon_domain_tri_mesh(
-        outer_boundary,
-        holes=holes,
-        target_edge_size=target_edge_size,
-        interior_relaxation=interior_relaxation,
-    )
-    quad_points_np, quad_elements_np, _ = _triangle_to_quad_points_and_elements(np.asarray(tri_points), np.asarray(tri_topology.elements))
-    quad_points = jnp.asarray(quad_points_np, dtype=jax_float_dtype())
-    quad_elements = jnp.asarray(quad_elements_np, dtype=jnp.int32)
-    return mesh_topology_from_points_and_elements(quad_points, quad_elements), quad_points
+    if backend == "native":
+        tri_topology, tri_points, _, _, _ = _build_polygon_domain_tri_mesh(
+            outer_boundary,
+            holes=holes,
+            target_edge_size=target_edge_size,
+            interior_relaxation=interior_relaxation,
+        )
+        quad_points_np, quad_elements_np, _ = _triangle_to_quad_points_and_elements(np.asarray(tri_points), np.asarray(tri_topology.elements))
+        quad_points = jnp.asarray(quad_points_np, dtype=jax_float_dtype())
+        quad_elements = jnp.asarray(quad_elements_np, dtype=jnp.int32)
+        return mesh_topology_from_points_and_elements(quad_points, quad_elements), quad_points
+    if backend == "gmsh":
+        topology, points, _ = _polygon_domain_mesh_via_gmsh(
+            outer_boundary,
+            holes=holes,
+            target_edge_size=target_edge_size,
+            recombine=True,
+            gmsh_executable=gmsh_executable,
+        )
+        return topology, points
+    raise ValueError("backend must be 'native' or 'gmsh'")
 
 
 def polygon_domain_quad_mesh_tagged(
@@ -519,18 +744,30 @@ def polygon_domain_quad_mesh_tagged(
     holes: list[jnp.ndarray] | None = None,
     target_edge_size: float | None = None,
     interior_relaxation: float = 0.35,
+    backend: str = "native",
+    gmsh_executable: str = "gmsh",
 ) -> tuple[MeshTopology, jnp.ndarray, DomainMeshMetadata]:
-    tri_topology, tri_points, _, loop_ranges, remap = _build_polygon_domain_tri_mesh(
-        outer_boundary,
-        holes=holes,
-        target_edge_size=target_edge_size,
-        interior_relaxation=interior_relaxation,
-    )
-    quad_points_np, quad_elements_np, edge_to_midpoint = _triangle_to_quad_points_and_elements(np.asarray(tri_points), np.asarray(tri_topology.elements))
-    quad_points = jnp.asarray(quad_points_np, dtype=jax_float_dtype())
-    quad_elements = jnp.asarray(quad_elements_np, dtype=jnp.int32)
-    metadata = _polygon_quad_boundary_metadata(loop_ranges, remap, edge_to_midpoint)
-    return mesh_topology_from_points_and_elements(quad_points, quad_elements), quad_points, metadata
+    if backend == "native":
+        tri_topology, tri_points, _, loop_ranges, remap = _build_polygon_domain_tri_mesh(
+            outer_boundary,
+            holes=holes,
+            target_edge_size=target_edge_size,
+            interior_relaxation=interior_relaxation,
+        )
+        quad_points_np, quad_elements_np, edge_to_midpoint = _triangle_to_quad_points_and_elements(np.asarray(tri_points), np.asarray(tri_topology.elements))
+        quad_points = jnp.asarray(quad_points_np, dtype=jax_float_dtype())
+        quad_elements = jnp.asarray(quad_elements_np, dtype=jnp.int32)
+        metadata = _polygon_quad_boundary_metadata(loop_ranges, remap, edge_to_midpoint)
+        return mesh_topology_from_points_and_elements(quad_points, quad_elements), quad_points, metadata
+    if backend == "gmsh":
+        return _polygon_domain_mesh_via_gmsh(
+            outer_boundary,
+            holes=holes,
+            target_edge_size=target_edge_size,
+            recombine=True,
+            gmsh_executable=gmsh_executable,
+        )
+    raise ValueError("backend must be 'native' or 'gmsh'")
 
 
 def box_volume_tet_mesh(

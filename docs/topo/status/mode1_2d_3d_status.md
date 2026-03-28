@@ -33,6 +33,8 @@ The current Mode 1 surface now includes:
 - stable final snapshot export in both compact and richer topology-aware forms
 - viewer-neutral visualization payload export for later inspection workflows
 - repository-supported viewing through native Gmsh, Matplotlib, PyVista, and Viser
+- high-level polygon and polygon-quad workflow initialization with Gmsh-preferred meshing by default
+- repository-native polygon meshing retained as the slower fallback and reference implementation when Gmsh is not selected or not available
 
 ## Validation State
 
@@ -81,4 +83,3 @@ The next tranche should focus on strengthening the bridge from practical fixed-t
 ### Explicit Recommendation
 
 Do not spend the next cycle chasing broad Gmsh feature parity inside Mode 1. The better technical path is to treat the current Mode 1 coverage as the stable fixed-topology baseline and move new effort into transfer, controller, and surrogate infrastructure.
-

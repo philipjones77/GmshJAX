@@ -44,6 +44,45 @@ def test_create_runtime_optimized_returns_optimized_runtime(tmp_path) -> None:
     assert out.vertices.shape == (1, 2, 3)
 
 
+def test_create_runtime_optimized_builds_recommended_policy_from_backend_hint(tmp_path) -> None:
+    path = tmp_path / "model.npz"
+    _write_model(path)
+
+    runtime = create_runtime(
+        path,
+        mode="optimized",
+        backend="cpu",
+        batch_size_hint=6,
+        prefer_fixed_padding=True,
+    )
+
+    assert isinstance(runtime, OptimizedSMPLJAX)
+    assert runtime.policy.batch_buckets == (1, 4, 8)
+    assert runtime.policy.fixed_padded_batch_size == 8
+    assert runtime.policy.forbid_new_compiles is True
+    assert runtime.policy.max_compiled == 4
+
+
+def test_create_runtime_optimized_accepts_explicit_fixed_capacity_and_cache_bound(tmp_path) -> None:
+    path = tmp_path / "model.npz"
+    _write_model(path)
+
+    runtime = create_runtime(
+        path,
+        mode="optimized",
+        backend="cpu",
+        batch_size_hint=12,
+        fixed_padded_batch_size=16,
+        forbid_new_compiles=False,
+        max_compiled=7,
+    )
+
+    assert isinstance(runtime, OptimizedSMPLJAX)
+    assert runtime.policy.fixed_padded_batch_size == 16
+    assert runtime.policy.forbid_new_compiles is False
+    assert runtime.policy.max_compiled == 7
+
+
 def test_create_runtime_rejects_unknown_mode(tmp_path) -> None:
     path = tmp_path / "model.npz"
     _write_model(path)

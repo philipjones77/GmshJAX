@@ -1,4 +1,5 @@
 import csv
+import importlib.util
 import json
 import os
 import subprocess
@@ -7,6 +8,7 @@ import types
 from pathlib import Path
 
 import jax.numpy as jnp
+import pytest
 
 from topojax.ad.mode1 import export_mode1_artifacts, mode1_history_payload, mode1_metrics_payload, optimize_mode1_fixed_topology
 from topojax.io.exports import GmshElementBlock
@@ -150,29 +152,17 @@ def test_visualization_result_dispatches_native_gmsh(monkeypatch, tmp_path: Path
     assert (tmp_path / "mode1_view.msh").exists()
 
 
-def test_mode1_artifact_benchmark_script_emits_expected_fields(tmp_path: Path) -> None:
-    repo_root = Path(__file__).resolve().parents[2]
-    out_json = tmp_path / "bench.json"
-    out_dir = tmp_path / "artifacts"
-    env = dict(os.environ)
-    env["PYTHONPATH"] = "src"
-
-    proc = subprocess.run(
-        [
-            sys.executable,
-            "benchmarks/topo/benchmark_mode1_artifacts.py",
-            "--steps",
-            "4",
-            "--out-dir",
-            str(out_dir),
-            "--out",
-            str(out_json),
-        ],
-        cwd=str(repo_root),
-        env=env,
-        text=True,
-        capture_output=True,
-        check=False,
+@pytest.mark.benchmark
+def test_mode1_artifact_benchmark_script_emits_expected_fields(benchmark_output_dir: Path, benchmark_runner) -> None:
+    out_json = benchmark_output_dir / "bench.json"
+    proc = benchmark_runner(
+        "benchmarks/topo/benchmark_mode1_artifacts.py",
+        "--steps",
+        "4",
+        "--out-dir",
+        str(benchmark_output_dir / "artifacts"),
+        "--out",
+        str(out_json),
     )
     assert proc.returncode == 0, proc.stderr
     payload = json.loads(out_json.read_text(encoding="utf-8"))
@@ -183,6 +173,8 @@ def test_mode1_artifact_benchmark_script_emits_expected_fields(tmp_path: Path) -
 
 
 def test_real_pyvista_backend_smoke_subprocess() -> None:
+    if importlib.util.find_spec("pyvista") is None:
+        pytest.skip("pyvista is not installed")
     repo_root = Path(__file__).resolve().parents[2]
     env = dict(os.environ)
     env["PYTHONPATH"] = "src"

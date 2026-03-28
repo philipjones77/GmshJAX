@@ -38,5 +38,6 @@ The package root re-exports the intended public surface from `topojax.__init__`,
 ## Artifacts and Validation
 
 - `tests/topo/` covers generators, boundary handling, refinement, mutation, diagnostics, and adaptive workflows
-- `examples/topo/` and `notebooks/` demonstrate end-to-end usage patterns
+- benchmark harnesses live under `benchmarks/topo/` and are validated through pytest benchmark-marked tests
+- `examples/topo/` demonstrates end-to-end usage patterns, including notebooks and script-style demos
 - `outputs/topo/` stores retained demo and benchmark outputs

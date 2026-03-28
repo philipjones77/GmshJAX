@@ -8,3 +8,4 @@ Current catalog documents:
 
 - `mesh_movement_modes.md`
 - `mode1_domain_initializers.md`
+- `runtime_objects.md`

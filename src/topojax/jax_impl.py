@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 
+from common.movement import default_mesh_movement_transform
 from topojax.ad.pipeline import build_model_parametric_quality_value_and_grad
 from topojax.mesh.factory import make_unit_square_model
 from topojax.mesh.manifold import DeformationParams, apply_deformation
@@ -32,12 +33,7 @@ def as_jax_array(x, dtype=None):
 def default_deformation_params(dtype=None) -> DeformationParams:
     if dtype is None:
         dtype = jax_float_dtype()
-    return DeformationParams(
-        translation=jnp.array([0.0, 0.0], dtype=dtype),
-        scale=jnp.array([1.0, 1.0], dtype=dtype),
-        shear=jnp.array([0.0, 0.0], dtype=dtype),
-        bend=jnp.array([0.0, 0.0], dtype=dtype),
-    )
+    return DeformationParams(*default_mesh_movement_transform(point_dim=2, dtype=dtype, backend="jax"))
 
 
 __all__ = [

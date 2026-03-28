@@ -15,3 +15,7 @@ Practical documents are usage-oriented. They are distinct from:
 - `theory/`, which explains underlying concepts
 - `implementation/`, which explains engineering internals
 - `reports/`, which records measured or official outcomes
+
+Current practical docs:
+
+- `api_usage.md`

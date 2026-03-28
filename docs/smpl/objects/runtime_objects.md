@@ -1,19 +1,18 @@
-# Runtime Objects (Version 1.0.0)
+# SMPL Runtime Objects
 
-## `SMPLModelData`
-- Canonical in-memory representation of model constants and metadata.
+Primary SMPL runtime objects include:
 
-## `CachePolicy`
-- Runtime controls for dtype, compile-cache bound, and batch bucketing.
+- `SMPLJAXModel`
+- `OptimizedSMPLJAX`
+- `ForwardInputs`
+- `CachePolicy`
+- `RuntimeDiagnostics`
+- `SMPLMode1Provision`
+- `SMPLMode1WorkflowRun`
+- `SMPLMode1OptimizationResult`
+- `SMPLMode2OptimizationResult`
+- `SMPLMode3OptimizationResult`
+- `SMPLMode4OptimizationResult`
+- `SMPLMode5OptimizationResult`
 
-## `ForwardInputs`
-- Fixed-structure runtime input container for optimized execution.
-
-## `RuntimeDiagnostics`
-- Snapshot of compile/cache/memory counters.
-
-## `IOCacheDiagnostics`
-- Snapshot of IO model cache residency and hit/miss metrics.
-
-## `ModelSummary`
-- Structured model IO summary for validation and diagnostics output.
+These objects define the practical SMPL surface for model loading, repeated forward execution, optimization, diagnostics, and export.

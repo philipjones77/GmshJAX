@@ -50,6 +50,7 @@ Mode 2 currently guarantees:
 - fixed-topology optimization within each phase
 - explicit discrete remesh boundaries between phases
 - support for triangle, quad, and tetra restart workflows
+- reuse of the same practical domain initialization layer as Mode 1, including Gmsh-preferred polygon initialization with repository-native fallback
 - phase summaries recording start energy, final energy, mesh size, and whether remeshing occurred
 - artifact export for final mesh, per-phase history, summary metrics, and optional STL surface output
 - one high-level workflow entry point comparable to Mode 1 for supported restart domains

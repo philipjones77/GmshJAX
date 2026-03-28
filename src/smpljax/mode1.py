@@ -9,10 +9,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from .api import RuntimeMode, create_runtime
 from .body_models import ModelOutput, SMPLJAXModel
 from .disk import atomic_write_csv, atomic_write_json, atomic_write_npz
 from .mode_snapshot import export_mode1_snapshot
-from .optimized import ForwardInputs, OptimizedSMPLJAX
+from .optimized import CachePolicy, ForwardInputs, OptimizedSMPLJAX
 
 
 Mode1ModelLike = SMPLJAXModel | OptimizedSMPLJAX
@@ -39,6 +40,20 @@ class SMPLMode1OptimizationResult(NamedTuple):
     step_diagnostics: tuple[SMPLMode1StepDiagnostics, ...]
 
 
+class SMPLMode1Provision(NamedTuple):
+    model: Mode1ModelLike
+    params: dict[str, jax.Array]
+    runtime_mode: str
+    model_path: str | None
+
+
+class SMPLMode1WorkflowRun(NamedTuple):
+    provision: SMPLMode1Provision
+    result: SMPLMode1OptimizationResult
+    artifacts: dict[str, Path]
+    viewer: Any | None = None
+
+
 def _coerce_params(params: Mode1ParamTree) -> dict[str, jax.Array]:
     if isinstance(params, ForwardInputs):
         return {
@@ -54,6 +69,100 @@ def _coerce_params(params: Mode1ParamTree) -> dict[str, jax.Array]:
             "right_hand_pose": params.right_hand_pose,
         }
     return {str(key): jnp.asarray(value) for key, value in params.items()}
+
+
+def _emit_progress(message: str, *, progress: bool) -> None:
+    if progress:
+        print(f"[smpljax] {message}")
+
+
+def _model_dtype(model: Mode1ModelLike) -> jnp.dtype:
+    return jnp.asarray(model.data.v_template).dtype
+
+
+def _num_body_joints(model: Mode1ModelLike) -> int:
+    data = model.data
+    if data.num_body_joints is not None:
+        return int(data.num_body_joints)
+    total_joints = int(np.asarray(data.parents).shape[0])
+    return max(total_joints - 1 - int(data.num_hand_joints or 0) * 2 - int(data.num_face_joints or 0), 0)
+
+
+def default_mode1_params(
+    model: Mode1ModelLike,
+    *,
+    batch_size: int = 1,
+    transl: jax.Array | None = None,
+) -> dict[str, jax.Array]:
+    if batch_size < 1:
+        raise ValueError("batch_size must be at least 1")
+
+    data = model.data
+    dtype = _model_dtype(model)
+    num_betas = int(data.num_betas or np.asarray(data.shapedirs).shape[-1])
+    num_expr = int(data.num_expression_coeffs or 0)
+    num_body = _num_body_joints(model)
+    num_hand = int(data.num_hand_joints or 0)
+    num_face = int(data.num_face_joints or 0)
+
+    params: dict[str, jax.Array] = {
+        "betas": jnp.zeros((batch_size, num_betas), dtype=dtype),
+        "body_pose": jnp.zeros((batch_size, num_body, 3), dtype=dtype),
+        "global_orient": jnp.zeros((batch_size, 1, 3), dtype=dtype),
+        "transl": jnp.zeros((batch_size, 3), dtype=dtype) if transl is None else jnp.asarray(transl, dtype=dtype),
+    }
+    if num_expr > 0:
+        params["expression"] = jnp.zeros((batch_size, num_expr), dtype=dtype)
+    if num_face > 0:
+        params["jaw_pose"] = jnp.zeros((batch_size, 1, 3), dtype=dtype)
+        params["leye_pose"] = jnp.zeros((batch_size, 1, 3), dtype=dtype)
+        params["reye_pose"] = jnp.zeros((batch_size, 1, 3), dtype=dtype)
+    if num_hand > 0:
+        params["left_hand_pose"] = jnp.zeros((batch_size, num_hand, 3), dtype=dtype)
+        params["right_hand_pose"] = jnp.zeros((batch_size, num_hand, 3), dtype=dtype)
+    return params
+
+
+def initialize_mode1_model(
+    *,
+    model_path: str | Path | None = None,
+    model: Mode1ModelLike | None = None,
+    runtime_mode: RuntimeMode = "optimized",
+    io_cache_entries: int = 2,
+    dtype: str | None = None,
+    cache_policy: CachePolicy | None = None,
+    batch_size: int = 1,
+    params: Mode1ParamTree | None = None,
+    transl: jax.Array | None = None,
+    progress: bool = True,
+) -> SMPLMode1Provision:
+    if model is None and model_path is None:
+        raise ValueError("Either model_path or model must be provided")
+    if model is not None and model_path is not None:
+        raise ValueError("Provide either model_path or model, not both")
+
+    runtime_label = runtime_mode if model is None else type(model).__name__
+    _emit_progress(f"initializing smpl mode1 runtime: {runtime_label}", progress=progress)
+    runtime = model if model is not None else create_runtime(
+        model_path,
+        mode=runtime_mode,
+        io_cache_entries=io_cache_entries,
+        dtype=dtype,
+        cache_policy=cache_policy,
+    )
+    base_params = default_mode1_params(runtime, batch_size=batch_size, transl=transl)
+    if params is not None:
+        base_params.update(_coerce_params(params))
+    _emit_progress(
+        f"smpl mode1 runtime ready: batch={int(next(iter(base_params.values())).shape[0])}",
+        progress=progress,
+    )
+    return SMPLMode1Provision(
+        model=runtime,
+        params=base_params,
+        runtime_mode=runtime_mode if model is None else type(model).__name__,
+        model_path=None if model_path is None else str(model_path),
+    )
 
 
 def _tree_l2_norm(tree: Mapping[str, jax.Array]) -> jax.Array:
@@ -233,6 +342,7 @@ def export_mode1_artifacts(
     snapshot_path = out_dir / f"{prefix}_snapshot.npz"
     metrics_path = out_dir / f"{prefix}_metrics.json"
     history_npz_path = out_dir / f"{prefix}_history.npz"
+    history_json_path = out_dir / f"{prefix}_history.json"
     history_csv_path = out_dir / f"{prefix}_history.csv"
     viewer_path = out_dir / f"{prefix}_viewer.json"
     topo_snapshot_path = out_dir / f"{prefix}_snapshot.mode1.npz"
@@ -249,6 +359,13 @@ def export_mode1_artifacts(
     )
     atomic_write_json(metrics_path, metrics)
     atomic_write_npz(history_npz_path, **history)
+    atomic_write_json(
+        history_json_path,
+        [
+            {"step": int(step), "objective": float(obj), "grad_norm": float(grad)}
+            for step, obj, grad in zip(history["step"], history["objective_history"], history["grad_norm_history"])
+        ],
+    )
     atomic_write_csv(
         history_csv_path,
         [
@@ -274,6 +391,56 @@ def export_mode1_artifacts(
         "mode1_snapshot": topo_snapshot_path,
         "metrics": metrics_path,
         "history": history_npz_path,
+        "history_json": history_json_path,
         "history_csv": history_csv_path,
         "viewer_payload": viewer_path,
     }
+
+
+def run_mode1_workflow(
+    provision: SMPLMode1Provision,
+    *,
+    output_dir: str | Path,
+    prefix: str = "smpl_mode1",
+    params: Mode1ParamTree | None = None,
+    objective_fn: Mode1ObjectiveFn | None = None,
+    steps: int = 40,
+    step_size: float = 1.0e-2,
+    diagnostics_every: int = 10,
+    project_fn: Callable[[dict[str, jax.Array]], dict[str, jax.Array]] | None = None,
+    visualize_backend: str | None = None,
+    title: str = "SMPL Mode 1 Result",
+    show: bool = False,
+    host: str = "127.0.0.1",
+    port: int = 8090,
+    progress: bool = True,
+) -> SMPLMode1WorkflowRun:
+    active_params = dict(provision.params)
+    if params is not None:
+        active_params.update(_coerce_params(params))
+    batch_size = int(next(iter(active_params.values())).shape[0]) if active_params else 0
+    _emit_progress(f"mode1 optimize start: batch={batch_size} steps={steps}", progress=progress)
+    result = optimize_mode1(
+        provision.model,
+        active_params,
+        objective_fn=objective_fn,
+        steps=steps,
+        step_size=step_size,
+        diagnostics_every=diagnostics_every,
+        project_fn=project_fn,
+    )
+    _emit_progress(f"mode1 export start: {output_dir}", progress=progress)
+    artifacts = export_mode1_artifacts(output_dir, result, prefix=prefix)
+    viewer = None
+    if visualize_backend is not None:
+        _emit_progress(f"mode1 visualize start: backend={visualize_backend}", progress=progress)
+        from .visualization.mode1 import visualize_mode1_result as _visualize_mode1_result
+
+        viewer = _visualize_mode1_result(result, backend=visualize_backend, title=title, show=show, host=host, port=port)
+    _emit_progress(f"mode1 complete: snapshot={artifacts['mode1_snapshot']}", progress=progress)
+    return SMPLMode1WorkflowRun(
+        provision=provision,
+        result=result,
+        artifacts=artifacts,
+        viewer=viewer,
+    )

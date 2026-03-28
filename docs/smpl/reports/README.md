@@ -11,3 +11,7 @@ Use this folder for:
 - official milestone or audit-style reports
 
 Reports capture observed or checked state. They do not replace specs, contracts, or implementation notes.
+
+Current reports:
+
+- `api_test_benchmark_inventory.md`

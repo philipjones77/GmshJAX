@@ -16,5 +16,6 @@ results/**/*.csv
 results/**/*.npz
 results/**/*.msh
 _bundles/*.zip
+outputs/
 
 .vscode/

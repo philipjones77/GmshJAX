@@ -16,7 +16,7 @@ from topojax.ad.modes import MeshMovementMode, MeshMovementModeSpec, get_mesh_mo
 from topojax.io.exports import GmshElementBlock
 from topojax.mesh.domains import DomainMeshMetadata
 from topojax.mesh.operators import line_element_lengths, triangle_signed_areas
-from topojax.mesh.topology import MeshTopology
+from topojax.mesh.topology import MeshTopology, mesh_topology_from_points_and_elements
 
 
 GeometryFn = Callable[[Mapping[str, Any] | None], jnp.ndarray]
@@ -597,6 +597,7 @@ class RandomFields77ModeBridge:
                 "supports_pyvista": True,
                 "supports_gmsh": True,
             },
+            "builder_options": None if self.builder_options is None else dict(self.builder_options),
             "mode_contract": self.mode_contract(),
         }
 
@@ -711,8 +712,8 @@ def build_mode2_randomfields77_bridge(
 
 
 def build_mode3_randomfields77_bridge(
-    points: jnp.ndarray,
-    topology: MeshTopology,
+    source,
+    topology: MeshTopology | None = None,
     *,
     metadata: DomainMeshMetadata | None = None,
     geometry_fn: GeometryFn | None = None,
@@ -724,15 +725,34 @@ def build_mode3_randomfields77_bridge(
     builder_options: dict[str, Any] | None = None,
 ) -> RandomFields77ModeBridge:
     local_options = {} if builder_options is None else dict(builder_options)
+    if topology is None and hasattr(source, "domain") and hasattr(source, "result"):
+        points = source.result.points
+        topology = mesh_topology_from_points_and_elements(points, source.result.elements)
+        metadata = source.domain.metadata
+        local_options.setdefault(
+            "candidate_graph",
+            {
+                "kind": source.result.candidate_kind,
+                "topology_kind": source.result.topology_kind,
+                "candidate_count": int(source.result.logits.shape[0]),
+            },
+        )
+        local_options.setdefault("soft_weights", np.asarray(source.result.weights).tolist())
+        mesh_source = "topojax:mode3-workflow"
+    else:
+        points = jnp.asarray(source)
+        if topology is None:
+            raise TypeError("Mode 3 bridge expects either (points, topology) or a workflow run")
+        mesh_source = "topojax:mode3-domain"
     local_options.setdefault("candidate_graph", candidate_graph)
     local_options.setdefault("soft_weights", soft_weights)
-    local_options.setdefault("review_status", "stub")
+    local_options.setdefault("review_status", "implemented")
     return build_randomfields77_bridge(
         points,
         topology,
         mode=MeshMovementMode.SOFT_CONNECTIVITY,
         metadata=metadata,
-        mesh_source="topojax:mode3-stub",
+        mesh_source=mesh_source,
         builder_options=local_options,
         geometry_fn=geometry_fn,
         geodesic_fn=geodesic_fn,
@@ -742,8 +762,8 @@ def build_mode3_randomfields77_bridge(
 
 
 def build_mode4_randomfields77_bridge(
-    points: jnp.ndarray,
-    topology: MeshTopology,
+    source,
+    topology: MeshTopology | None = None,
     *,
     metadata: DomainMeshMetadata | None = None,
     geometry_fn: GeometryFn | None = None,
@@ -756,16 +776,36 @@ def build_mode4_randomfields77_bridge(
     builder_options: dict[str, Any] | None = None,
 ) -> RandomFields77ModeBridge:
     local_options = {} if builder_options is None else dict(builder_options)
+    if topology is None and hasattr(source, "domain") and hasattr(source, "result"):
+        points = source.result.points
+        topology = mesh_topology_from_points_and_elements(points, source.result.elements)
+        metadata = source.domain.metadata
+        local_options.setdefault(
+            "candidate_graph",
+            {
+                "kind": source.result.candidate_kind,
+                "topology_kind": source.result.topology_kind,
+                "candidate_count": int(source.result.logits.shape[0]),
+            },
+        )
+        local_options.setdefault("forward_state", {"hard_weights": np.asarray(source.result.hard_weights).tolist()})
+        local_options.setdefault("backward_surrogate", {"temperature": source.result.temperature})
+        mesh_source = "topojax:mode4-workflow"
+    else:
+        points = jnp.asarray(source)
+        if topology is None:
+            raise TypeError("Mode 4 bridge expects either (points, topology) or a workflow run")
+        mesh_source = "topojax:mode4-domain"
     local_options.setdefault("candidate_graph", candidate_graph)
     local_options.setdefault("forward_state", forward_state)
     local_options.setdefault("backward_surrogate", backward_surrogate)
-    local_options.setdefault("review_status", "stub")
+    local_options.setdefault("review_status", "implemented")
     return build_randomfields77_bridge(
         points,
         topology,
         mode=MeshMovementMode.STRAIGHT_THROUGH,
         metadata=metadata,
-        mesh_source="topojax:mode4-stub",
+        mesh_source=mesh_source,
         builder_options=local_options,
         geometry_fn=geometry_fn,
         geodesic_fn=geodesic_fn,
@@ -775,8 +815,8 @@ def build_mode4_randomfields77_bridge(
 
 
 def build_mode5_randomfields77_bridge(
-    points: jnp.ndarray,
-    topology: MeshTopology,
+    source,
+    topology: MeshTopology | None = None,
     *,
     metadata: DomainMeshMetadata | None = None,
     geometry_fn: GeometryFn | None = None,
@@ -789,16 +829,29 @@ def build_mode5_randomfields77_bridge(
     builder_options: dict[str, Any] | None = None,
 ) -> RandomFields77ModeBridge:
     local_options = {} if builder_options is None else dict(builder_options)
+    if topology is None and hasattr(source, "domain") and hasattr(source, "result"):
+        points = source.result.points
+        topology = mesh_topology_from_points_and_elements(points, source.result.elements)
+        metadata = source.domain.metadata if not any(phase.remeshed for phase in source.result.phases) else None
+        local_options.setdefault("controller_history", [entry._asdict() for entry in source.result.controller_history])
+        local_options.setdefault("transfer_history", [entry._asdict() for entry in source.result.transfer_history])
+        local_options.setdefault("implementation_status", source.result.implementation_status)
+        mesh_source = "topojax:mode5-workflow"
+    else:
+        points = jnp.asarray(source)
+        if topology is None:
+            raise TypeError("Mode 5 bridge expects either (points, topology) or a workflow run")
+        mesh_source = "topojax:mode5-domain"
     local_options.setdefault("dynamic_remesh_fn", dynamic_remesh_fn)
     local_options.setdefault("state_transfer_fn", state_transfer_fn)
     local_options.setdefault("controller_fn", controller_fn)
-    local_options.setdefault("review_status", "stub")
+    local_options.setdefault("review_status", "implemented")
     return build_randomfields77_bridge(
         points,
         topology,
         mode=MeshMovementMode.FULLY_DYNAMIC,
         metadata=metadata,
-        mesh_source="topojax:mode5-stub",
+        mesh_source=mesh_source,
         builder_options=local_options,
         geometry_fn=geometry_fn,
         geodesic_fn=geodesic_fn,

@@ -30,4 +30,4 @@ Only check in SMPL-family assets when redistribution is clearly permitted. Other
 - small synthetic fixtures
 - metadata and documentation
 
-See [THIRD_PARTY_NOTICES.md](/home/phili/projects/TopoSmplJAX/LICENSES/THIRD_PARTY_NOTICES.md) for explicit attribution and upstream notice tracking.
+See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) for explicit attribution and upstream notice tracking.

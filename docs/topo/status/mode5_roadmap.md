@@ -1,13 +1,19 @@
 # Mode 5 Prototype Roadmap
 
-Status: active planning
-Date: 2026-03-15
+Status: active implementation
+Date: 2026-03-28
 
 ## Purpose
 
 This document defines the prototype implementation roadmap for mode 5, `fully-dynamic-remeshing`.
 
-Mode 5 is the aspirational workflow where complete remeshing is allowed while geometry is moving inside one optimization process. In the current repository, this is a planning target rather than a supported runtime guarantee.
+Mode 5 is the workflow where remeshing is allowed while geometry is moving inside one optimization process.
+
+Current repository state:
+
+- a relaxed dynamic implementation exists for 2D triangle and 3D tetra workflows
+- controller decisions, surrogate phases, and state transfer are explicit runtime objects
+- the implementation remains approximate and should be read as a practical prototype, not exact AD through arbitrary remeshing events
 
 ## Target Outcome
 
@@ -72,7 +78,7 @@ The controller should be driven by quality, distortion, size-field, or surrogate
 
 ### Layer E: Relaxed Mode-5 Prototype
 
-The first true mode-5 prototype should treat remeshing as a controlled hybrid process:
+The current prototype already treats remeshing as a controlled hybrid process:
 
 - continuous geometry motion
 - continuous surrogate topology variables where possible
@@ -172,6 +178,12 @@ Acceptance signals:
 - moving geometry with in-loop controller decisions
 - at least one surrogate-local topology phase and one discrete remesh-transfer phase
 - stable example run with documented limitations
+
+Current implementation note:
+
+- this milestone is now partially realized in `src/topojax/ad/dynamic.py`
+- the runtime currently supports 2D triangle and 3D tetra workflows
+- transfer is explicit and testable, but still intentionally simple nearest-neighbor or nearest-centroid projection
 
 ## Suggested Build Order
 

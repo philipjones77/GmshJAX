@@ -259,6 +259,7 @@ def build_mode3_visualization_payload(
     metrics: dict[str, Any] | None = None,
     title: str = "Mode 3 Soft-Connectivity State",
     candidate_logits: jnp.ndarray | None = None,
+    implementation_status: str = "stubbed-interface",
 ) -> dict[str, Any]:
     """Build the stable payload contract for Mode 3 visualization.
 
@@ -275,7 +276,7 @@ def build_mode3_visualization_payload(
         metadata={"candidate_logits": None if candidate_logits is None else np.asarray(candidate_logits).tolist()},
     )
     payload = build_topo_visualization_payload(state, metrics=metrics)
-    payload["implementation_status"] = "stubbed-interface"
+    payload["implementation_status"] = implementation_status
     return payload
 
 
@@ -287,6 +288,7 @@ def build_mode4_visualization_payload(
     metrics: dict[str, Any] | None = None,
     title: str = "Mode 4 Straight-Through State",
     candidate_logits: jnp.ndarray | None = None,
+    implementation_status: str = "stubbed-interface",
 ) -> dict[str, Any]:
     """Build the stable payload contract for Mode 4 visualization."""
     state = _state_from_result(
@@ -299,7 +301,7 @@ def build_mode4_visualization_payload(
         metadata={"candidate_logits": None if candidate_logits is None else np.asarray(candidate_logits).tolist()},
     )
     payload = build_topo_visualization_payload(state, metrics=metrics)
-    payload["implementation_status"] = "stubbed-interface"
+    payload["implementation_status"] = implementation_status
     return payload
 
 
@@ -311,6 +313,7 @@ def build_mode5_visualization_payload(
     metrics: dict[str, Any] | None = None,
     title: str = "Mode 5 Fully-Dynamic State",
     metadata: dict[str, Any] | None = None,
+    implementation_status: str = "implemented",
 ) -> dict[str, Any]:
     """Build the stable payload contract for Mode 5 visualization."""
     state = _state_from_result(
@@ -323,7 +326,7 @@ def build_mode5_visualization_payload(
         metadata=metadata,
     )
     payload = build_topo_visualization_payload(state, metrics=metrics)
-    payload["implementation_status"] = "planned-interface"
+    payload["implementation_status"] = implementation_status
     return payload
 
 

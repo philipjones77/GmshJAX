@@ -60,6 +60,22 @@ def test_optimized_dtype_consistency() -> None:
     assert out.joints.dtype == jnp.float32
 
 
+def test_recommended_cpu_policy_uses_compact_bucket_set() -> None:
+    policy = CachePolicy.recommended(backend="cpu", batch_size_hint=6, prefer_fixed_padding=True)
+    assert policy.batch_buckets == (1, 4, 8)
+    assert policy.fixed_padded_batch_size == 8
+    assert policy.forbid_new_compiles is True
+    assert policy.max_compiled == 4
+
+
+def test_recommended_gpu_policy_extends_bucket_for_larger_hint() -> None:
+    policy = CachePolicy.recommended(backend="gpu", batch_size_hint=160)
+    assert policy.batch_buckets == (1, 8, 16, 32, 64, 128, 160)
+    assert policy.fixed_padded_batch_size is None
+    assert policy.forbid_new_compiles is False
+    assert policy.max_compiled == 6
+
+
 def test_optimized_float64_policy_matches_jax_x64_setting() -> None:
     data = _model_data(dtype=jnp.float32)
     requested_dtype = jnp.float64 if bool(jax.config.read("jax_enable_x64")) else jnp.float32
@@ -140,6 +156,18 @@ def test_fixed_padded_batch_size_reuses_single_compile_across_smaller_batches() 
     assert opt.compile_count == c0
     assert inp2.padded_batch_size == 8
     assert inp5.padded_batch_size == 8
+
+
+def test_batch_larger_than_largest_bucket_uses_exact_shape_without_truncation() -> None:
+    opt = OptimizedSMPLJAX(
+        data=_model_data(),
+        cache_policy=CachePolicy(batch_buckets=(1, 8, 16), max_compiled=4),
+    )
+    inp = opt.prepare_inputs(batch_size=20)
+    out = opt.forward(inp, pose2rot=True)
+    assert inp.padded_batch_size == 20
+    assert out.vertices.shape == (20, 8, 3)
+    assert out.joints.shape[0] == 20
 
 
 def test_fixed_padded_batch_size_rejects_larger_batches() -> None:

@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import sys
 import types
@@ -68,6 +69,26 @@ def test_mode1_benchmark_returns_positive_timings() -> None:
     assert result.first_call_ms > 0.0
     assert result.steady_state_ms_per_step > 0.0
     assert result.steps == 5
+
+
+@pytest.mark.benchmark
+def test_mode1_benchmark_script_emits_expected_fields(benchmark_output_dir: Path, benchmark_runner) -> None:
+    out_json = benchmark_output_dir / "mode1_fixed_topology.json"
+    proc = benchmark_runner(
+        "benchmarks/topo/benchmark_mode1_fixed_topology.py",
+        "--kind",
+        "tri",
+        "--steps",
+        "5",
+        "--out",
+        str(out_json),
+    )
+    assert proc.returncode == 0, proc.stderr
+    payload = json.loads(out_json.read_text(encoding="utf-8"))
+    assert payload["kind"] == "tri"
+    assert payload["steps"] == 5
+    assert payload["first_call_ms"] > 0.0
+    assert payload["steady_state_ms_per_step"] > 0.0
 
 
 def test_build_mode1_optimizer_cache_stable_for_same_shapes() -> None:
@@ -216,7 +237,7 @@ def test_mode2_5_payload_contracts_exist() -> None:
     assert payload4["mode"] == 4
     assert payload4["implementation_status"] == "stubbed-interface"
     assert payload5["mode"] == 5
-    assert payload5["implementation_status"] == "planned-interface"
+    assert payload5["implementation_status"] == "implemented"
 
 
 def test_mode2_viser_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:

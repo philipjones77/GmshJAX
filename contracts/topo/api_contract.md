@@ -23,6 +23,7 @@ This contract currently covers these categories of public surface:
 - Mode 1 artifact and visualization helpers such as `mode1_history_payload`, `mode1_metrics_payload`, `export_mode1_artifacts`, `build_mode1_visualization_payload`, `export_mode1_visualization_payload`, `plot_mode1_matplotlib`, `plot_mode1_pyvista`, `plot_mode1_gmsh`, `visualize_mode1`, and `visualize_mode1_result`
 - Mode 2 restart helpers such as `optimize_remesh_restart_tri`, `optimize_remesh_restart_quad`, `optimize_remesh_restart_tet`, `summarize_mode2_restart_result`, and `run_mode2_restart_workflow`
 - Mode 2 visualization helpers and later-mode payload contracts such as `build_mode2_visualization_payload`, `build_mode3_visualization_payload`, `build_mode4_visualization_payload`, `build_mode5_visualization_payload`, `plot_topo_viser`, and `visualize_mode2_result`
+- experimental later-mode runtime helpers such as `optimize_soft_connectivity`, `optimize_straight_through_connectivity`, `optimize_dynamic_topology`, `run_mode3_workflow`, `run_mode4_workflow`, and `run_mode5_workflow`
 - runtime precision helpers such as `set_runtime_precision` and `get_runtime_precision`
 - interchange and workflow helpers such as `export_gmsh_msh`, `export_binary_stl`, `load_gmsh_msh`, `launch_gmsh_viewer`, `initialize_mode1_domain`, and `run_mode1_workflow`
 
@@ -31,6 +32,7 @@ Lower-level implementation modules may evolve without preserving the same stabil
 ## Behavioral Guarantees
 
 - Public API symbols covered by this contract must remain importable from `topojax` unless a documented breaking change is made.
+- The repository must continue to treat external meshing systems as ingestion or inspection boundaries that terminate in canonical JAX-native mesh objects and cacheable artifact payloads.
 - The package import boundary must preserve a core-path split:
   - simple topology builders and core Mode 1 AD helpers remain directly importable from `topojax`
   - arbitrary-domain builders remain directly importable from `topojax` but load their heavier domain-meshing module only when those symbols are requested
@@ -44,6 +46,10 @@ Lower-level implementation modules may evolve without preserving the same stabil
 - Mode 1 optimization must remain a JAX-native fixed-topology coordinate-optimization path that keeps element connectivity unchanged while updating node coordinates.
 - Mode 1 artifact export must continue to emit a stable final snapshot, stable scalar metrics, stable history payloads, a Gmsh `.msh` export, and a viewer-neutral visualization payload.
 - Mode 1 viewer dispatch must continue to support the repository-supported backends: native Gmsh, Matplotlib, PyVista, and Viser.
+- High-level polygon and polygon-quad workflow initialization must treat Gmsh-backed meshing as the preferred default when no backend is explicitly requested.
+- The preferred Gmsh-backed ingestion path for polygon and polygon-quad workflows must use the Python `gmsh` bindings when available.
+- A CLI-based Gmsh path may remain as compatibility fallback when the Python bindings are unavailable.
+- The slower repository-native polygon meshing path must remain available as an explicit backend and as the fallback path when the preferred Gmsh-backed ingestion path is unavailable.
 - Native Gmsh remains the default visualization backend for Topo Mode 1 and generic Topo state dispatch.
 - Tagged domain metadata exported through Gmsh blocks and physical names must remain stable enough to support the current tests and examples.
 

@@ -170,3 +170,105 @@ def test_smpljax_package_import_is_lazy() -> None:
         "smpljax_visualization": False,
         "smpljax_mode1": False,
     }
+
+
+def test_smpljax_api_module_import_is_lightweight() -> None:
+    payload = _run_probe(
+        (
+            "import json, sys; "
+            "import smpljax.api; "
+            "print(json.dumps({"
+            "'smpljax_api': 'smpljax.api' in sys.modules, "
+            "'smpljax_body_models': 'smpljax.body_models' in sys.modules, "
+            "'smpljax_io': 'smpljax.io' in sys.modules, "
+            "'smpljax_optimized': 'smpljax.optimized' in sys.modules"
+            "}))"
+        )
+    )
+    assert payload == {
+        "smpljax_api": True,
+        "smpljax_body_models": False,
+        "smpljax_io": False,
+        "smpljax_optimized": False,
+    }
+
+
+def test_common_package_import_is_lazy() -> None:
+    payload = _run_probe(
+        (
+            "import json, sys; "
+            "import common; "
+            "print(json.dumps({"
+            "'common_backends': 'common.backends' in sys.modules, "
+            "'common_numpy_mesh': 'common.numpy_mesh' in sys.modules, "
+            "'common_topo': 'common.topo' in sys.modules, "
+            "'common_smpl': 'common.smpl' in sys.modules"
+            "}))"
+        )
+    )
+    assert payload == {
+        "common_backends": False,
+        "common_numpy_mesh": False,
+        "common_topo": False,
+        "common_smpl": False,
+    }
+
+
+def test_common_numpy_mesh_submodule_loads_only_when_requested() -> None:
+    payload = _run_probe(
+        (
+            "import json, sys; "
+            "from common import numpy_mesh; "
+            "print(json.dumps({"
+            "'common_backends': 'common.backends' in sys.modules, "
+            "'common_numpy_mesh': 'common.numpy_mesh' in sys.modules, "
+            "'has_create_runtime': hasattr(numpy_mesh, 'create_runtime')"
+            "}))"
+        )
+    )
+    assert payload == {
+        "common_backends": False,
+        "common_numpy_mesh": True,
+        "has_create_runtime": True,
+    }
+
+
+def test_common_movement_submodule_loads_only_when_requested() -> None:
+    payload = _run_probe(
+        (
+            "import json, sys; "
+            "from common import movement; "
+            "print(json.dumps({"
+            "'common_backends': 'common.backends' in sys.modules, "
+            "'common_movement': 'common.movement' in sys.modules, "
+            "'has_apply': hasattr(movement, 'apply_mesh_movement')"
+            "}))"
+        )
+    )
+    assert payload == {
+        "common_backends": False,
+        "common_movement": True,
+        "has_apply": True,
+    }
+
+
+def test_common_backend_registry_loads_metadata_without_backend_modules() -> None:
+    payload = _run_probe(
+        (
+            "import json, sys; "
+            "from common import get_backends; "
+            "specs = get_backends(); "
+            "print(json.dumps({"
+            "'n_specs': len(specs), "
+            "'common_backends': 'common.backends' in sys.modules, "
+            "'common_topo': 'common.topo' in sys.modules, "
+            "'common_smpl': 'common.smpl' in sys.modules"
+            "}))"
+        )
+    )
+    assert payload == {
+        "n_specs": 2,
+        "common_backends": True,
+        "common_topo": False,
+        "common_smpl": False,
+    }

@@ -123,20 +123,53 @@ It should answer:
 ## 6. Current Repo Mapping
 
 Current implementation-oriented docs:
+- `docs/smpl/implementation/README.md`
+- `docs/smpl/implementation/api_runtime_implementation.md`
 - `docs/smpl/implementation/api_usage.md`
 - `docs/smpl/implementation/benchmark_results.md`
+- `docs/smpl/implementation/cache_padding_policy_implementation.md`
 - `docs/smpl/implementation/dependency_registry.md`
 - `docs/smpl/implementation/implementation_overview.md`
 - `docs/smpl/implementation/parity_workflow.md`
+- `docs/smpl/implementation/testing_benchmarks_examples_implementation.md`
+
+Current notation docs:
+- `docs/smpl/notation/README.md`
+- `docs/smpl/notation/glossary.md`
+- `docs/smpl/notation/mode_glossary.md`
+
+Current object docs:
+- `docs/smpl/objects/README.md`
+- `docs/smpl/objects/runtime_objects.md`
+
+Current theory docs:
+- `docs/smpl/theory/README.md`
+- `docs/smpl/theory/lbs_math_notes.md`
+- `docs/smpl/theory/runtime_mode_methodology.md`
 
 Current status docs:
+- `docs/smpl/status/README.md`
+- `docs/smpl/status/api_test_benchmark_status.md`
+- `docs/smpl/status/mode1_status.md`
+- `docs/smpl/status/mode2_roadmap.md`
 - `docs/smpl/status/roadmap.md`
 
 Current reports docs:
 - `docs/smpl/reports/README.md`
+- `docs/smpl/reports/api_test_benchmark_inventory.md`
 
 Current practical docs:
 - `docs/smpl/practical/README.md`
+- `docs/smpl/practical/api_usage.md`
+
+Current specs docs:
+- `docs/smpl/specs/README.md`
+- `docs/smpl/specs/api_runtime_surface.md`
+- `docs/smpl/specs/runtime_specs.md`
 
 Current contract docs:
 - `contracts/smpl/api_contract.md`
+
+Operational note:
+- retained benchmark harnesses live under `benchmarks/smpl/` and their validation is controlled through pytest benchmark-marked tests
+- user-facing notebooks and demos live under `examples/smpl/`
